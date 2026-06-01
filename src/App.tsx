@@ -1,39 +1,26 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
-import { ChatBubbles, type ChatMessage } from './components/ChatBubbles'
+import { ChatBubbles } from './components/ChatBubbles'
 import { ChatInput } from './components/ChatInput'
 import { DotGridBackground } from './components/DotGridBackground'
 import { PanZoomLayer } from './components/PanZoomLayer'
 import { RealtimeTranscriptionSession } from './lib/realtimeTranscription'
+import {
+  addAssistantMessage,
+  addUserMessage,
+  clearConversation,
+  forkConversation,
+  getModelContext,
+  loadConversationFromStorage,
+  saveConversationToStorage,
+  setActiveFromMessageClick,
+  type ConversationTree,
+} from './lib/conversationTree'
 import { SpeechPlayer } from './lib/speechSynthesis'
 
 type ChatMessagePayload = {
   role: 'user' | 'assistant'
   content: string
-}
-
-type InputTarget = 'main' | 'thread'
-
-function joinText(base: string, addition: string): string {
-  const trimmedBase = base.trim()
-  const trimmedAddition = addition.trim()
-  if (!trimmedAddition) {
-    return trimmedBase
-  }
-  if (!trimmedBase) {
-    return trimmedAddition
-  }
-  return `${trimmedBase} ${trimmedAddition}`
-}
-
-function getLatestAssistantMessageId(messages: ChatMessage[]): string | null {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    if (messages[index].role === 'assistant') {
-      return messages[index].id
-    }
-  }
-
-  return null
 }
 
 const SPEECH_STORAGE_KEY = 'gpt-chat-speech-enabled'
@@ -43,14 +30,13 @@ function getStoredSpeechEnabled(): boolean {
 }
 
 function App() {
-  const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [tree, setTree] = useState<ConversationTree>(loadConversationFromStorage)
   const [inputValue, setInputValue] = useState('')
-  const [threadInputValue, setThreadInputValue] = useState('')
   const [errorMessage, setErrorMessage] = useState('')
   const [isSending, setIsSending] = useState(false)
+  const [thinkingParentId, setThinkingParentId] = useState<string | null>(null)
   const [isRecording, setIsRecording] = useState(false)
   const [isConnecting, setIsConnecting] = useState(false)
-  const [activeInputTarget, setActiveInputTarget] = useState<InputTarget>('main')
   const [speechEnabled, setSpeechEnabled] = useState(getStoredSpeechEnabled)
   const [isSpeaking, setIsSpeaking] = useState(false)
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null)
@@ -59,15 +45,16 @@ function App() {
   const speechPlayerRef = useRef(new SpeechPlayer())
   const speechEnabledRef = useRef(speechEnabled)
   const transcriptionBaseRef = useRef('')
-  const activeInputTargetRef = useRef<InputTarget>('main')
+
+  const messageCount = useMemo(() => Object.keys(tree.messages).length, [tree.messages])
 
   useEffect(() => {
     speechEnabledRef.current = speechEnabled
   }, [speechEnabled])
 
   useEffect(() => {
-    activeInputTargetRef.current = activeInputTarget
-  }, [activeInputTarget])
+    saveConversationToStorage(tree)
+  }, [tree])
 
   useEffect(() => {
     return () => {
@@ -75,15 +62,6 @@ function App() {
       speechPlayerRef.current.stop()
     }
   }, [])
-
-  function setInputText(target: InputTarget, value: string): void {
-    if (target === 'main') {
-      setInputValue(value)
-      return
-    }
-
-    setThreadInputValue(value)
-  }
 
   async function speakResponse(text: string, messageId?: string): Promise<void> {
     setIsSpeaking(true)
@@ -101,14 +79,13 @@ function App() {
   }
 
   function handleFork(messageId: string): void {
-    setMessages((current) => {
-      const index = current.findIndex((message) => message.id === messageId)
-      if (index === -1) {
-        return current
-      }
+    setTree((current) => forkConversation(current, messageId))
+    setErrorMessage('')
+  }
 
-      return current.slice(0, index + 1)
-    })
+  function handleSelectMessage(messageId: string): void {
+    setTree((current) => setActiveFromMessageClick(current, messageId))
+    setErrorMessage('')
   }
 
   async function handleCopy(content: string): Promise<void> {
@@ -124,9 +101,24 @@ function App() {
     void speakResponse(content, messageId)
   }
 
-  async function sendMessage(text: string, branchFromMessageId?: string): Promise<void> {
+  function handleClearConversation(): void {
+    if (transcriptionSessionRef.current) {
+      stopRecording()
+    }
+    setTree(clearConversation())
+    setInputValue('')
+    setErrorMessage('')
+    setThinkingParentId(null)
+  }
+
+  async function sendMessage(text: string): Promise<void> {
     const trimmedText = text.trim()
     if (!trimmedText || isSending) {
+      return
+    }
+
+    if (tree.activeNodeId === null && messageCount > 0) {
+      setErrorMessage('Select an assistant message on the canvas to continue.')
       return
     }
 
@@ -134,38 +126,16 @@ function App() {
       stopRecording()
     }
 
-    const userMessage: ChatMessage = {
-      id: crypto.randomUUID(),
-      role: 'user',
-      content: trimmedText,
-    }
-
-    let baseMessages = messages
-    if (branchFromMessageId) {
-      const branchIndex = messages.findIndex((message) => message.id === branchFromMessageId)
-      if (branchIndex !== -1) {
-        baseMessages = messages.slice(0, branchIndex + 1)
-      }
-    }
-
-    const nextMessages = [...baseMessages, userMessage]
-    setMessages(nextMessages)
-
-    if (branchFromMessageId) {
-      setThreadInputValue('')
-    } else {
-      setInputValue('')
-    }
-
+    const { tree: treeWithUser, userMessage } = addUserMessage(tree, trimmedText)
+    setTree(treeWithUser)
+    setInputValue('')
+    setThinkingParentId(userMessage.id)
     transcriptionBaseRef.current = ''
     setErrorMessage('')
     setIsSending(true)
 
     try {
-      const payload: ChatMessagePayload[] = nextMessages.map(({ role, content }) => ({
-        role,
-        content,
-      }))
+      const payload: ChatMessagePayload[] = getModelContext(treeWithUser, userMessage)
 
       const response = await fetch('/chat', {
         method: 'POST',
@@ -178,14 +148,7 @@ function App() {
       }
 
       const data = (await response.json()) as { content: string }
-      setMessages((current) => [
-        ...current,
-        {
-          id: crypto.randomUUID(),
-          role: 'assistant',
-          content: data.content,
-        },
-      ])
+      setTree((current) => addAssistantMessage(current, userMessage.id, data.content))
 
       if (speechEnabledRef.current) {
         void speakResponse(data.content)
@@ -194,24 +157,14 @@ function App() {
       setErrorMessage(error instanceof Error ? error.message : 'Failed to send message.')
     } finally {
       setIsSending(false)
+      setThinkingParentId(null)
     }
   }
 
-  function handleThreadSend(text: string): void {
-    const branchFromMessageId = getLatestAssistantMessageId(messages)
-    if (!branchFromMessageId) {
-      return
-    }
-
-    void sendMessage(text, branchFromMessageId)
-  }
-
-  async function startRecording(target: InputTarget): Promise<void> {
+  async function startRecording(): Promise<void> {
     setErrorMessage('')
     setIsConnecting(true)
-    setActiveInputTarget(target)
-    activeInputTargetRef.current = target
-    transcriptionBaseRef.current = target === 'main' ? inputValue : threadInputValue
+    transcriptionBaseRef.current = inputValue
 
     let session: RealtimeTranscriptionSession | null = null
     session = new RealtimeTranscriptionSession({
@@ -226,14 +179,14 @@ function App() {
         if (transcriptionSessionRef.current !== session) {
           return
         }
-        setInputText(activeInputTargetRef.current, joinText(transcriptionBaseRef.current, draft))
+        setInputValue(joinText(transcriptionBaseRef.current, draft))
       },
       onCompleted: (transcript) => {
         if (transcriptionSessionRef.current !== session) {
           return
         }
         transcriptionBaseRef.current = joinText(transcriptionBaseRef.current, transcript)
-        setInputText(activeInputTargetRef.current, transcriptionBaseRef.current)
+        setInputValue(transcriptionBaseRef.current)
       },
       onError: (message) => {
         if (transcriptionSessionRef.current !== session) {
@@ -271,21 +224,17 @@ function App() {
     session.commitAndClose()
   }
 
-  function handleToggleRecording(target: InputTarget): void {
+  function handleToggleRecording(): void {
     if (isSending) {
-      return
-    }
-
-    if ((isRecording || isConnecting) && activeInputTarget === target) {
-      stopRecording()
       return
     }
 
     if (isRecording || isConnecting) {
       stopRecording()
+      return
     }
 
-    void startRecording(target)
+    void startRecording()
   }
 
   function handleToggleSpeech(): void {
@@ -301,53 +250,81 @@ function App() {
     })
   }
 
-  const hasLatestAssistant = getLatestAssistantMessageId(messages) !== null
+  const activeAssistantPreview =
+    tree.activeNodeId !== null
+      ? tree.messages[tree.activeNodeId]?.content.slice(0, 48)
+      : null
+
+  const composerPlaceholder =
+    tree.activeNodeId === null && messageCount === 0
+      ? 'Start conversation...'
+      : 'Send to continue from the active assistant…'
 
   return (
     <div className="relative min-h-screen overflow-hidden">
-      <PanZoomLayer minimapMessages={messages} minimapIsSending={isSending}>
+      <PanZoomLayer tree={tree} minimapIsSending={isSending} thinkingParentId={thinkingParentId}>
         <DotGridBackground />
         <ChatBubbles
-          messages={messages}
+          tree={tree}
           isSending={isSending}
+          thinkingParentId={thinkingParentId}
           errorMessage={errorMessage}
           speakingMessageId={speakingMessageId}
-          threadInput={
-            hasLatestAssistant
-              ? {
-                  value: threadInputValue,
-                  disabled: isSending,
-                  isTranscribing: isConnecting && activeInputTarget === 'thread',
-                  isRecording: isRecording && activeInputTarget === 'thread',
-                  speechEnabled,
-                  isSpeaking,
-                  onChange: setThreadInputValue,
-                  onSend: handleThreadSend,
-                  onToggleRecording: () => handleToggleRecording('thread'),
-                  onToggleSpeech: handleToggleSpeech,
-                }
-              : undefined
-          }
           onFork={handleFork}
           onCopy={(content) => void handleCopy(content)}
           onSpeak={handleSpeakMessage}
+          onSelectMessage={handleSelectMessage}
         />
       </PanZoomLayer>
 
-      <ChatInput
-        value={inputValue}
-        disabled={isSending}
-        isRecording={isRecording && activeInputTarget === 'main'}
-        isTranscribing={isConnecting && activeInputTarget === 'main'}
-        speechEnabled={speechEnabled}
-        isSpeaking={isSpeaking}
-        onChange={setInputValue}
-        onSend={(text) => void sendMessage(text)}
-        onToggleRecording={() => handleToggleRecording('main')}
-        onToggleSpeech={handleToggleSpeech}
-      />
+      <div className="pointer-events-none fixed bottom-4 left-1/2 z-50 flex w-full max-w-2xl -translate-x-1/2 flex-col gap-2 px-4">
+        {messageCount > 0 && tree.activeNodeId ? (
+          <p className="pointer-events-none truncate px-1 text-center text-xs text-muted-foreground">
+            Active: {activeAssistantPreview}
+            {(tree.messages[tree.activeNodeId]?.content.length ?? 0) > 48 ? '…' : ''}
+          </p>
+        ) : messageCount > 0 ? (
+          <p className="pointer-events-none px-1 text-center text-xs text-amber-700">
+            Click an assistant bubble (blue ring) to choose where to continue
+          </p>
+        ) : null}
+        {messageCount > 0 ? (
+          <button
+            type="button"
+            onClick={handleClearConversation}
+            className="pointer-events-auto self-end rounded-md border border-input bg-card/95 px-3 py-1.5 text-xs text-muted-foreground backdrop-blur transition-colors hover:bg-muted"
+          >
+            Clear conversation
+          </button>
+        ) : null}
+        <ChatInput
+          value={inputValue}
+          disabled={isSending}
+          isRecording={isRecording}
+          isTranscribing={isConnecting}
+          speechEnabled={speechEnabled}
+          isSpeaking={isSpeaking}
+          placeholder={composerPlaceholder}
+          onChange={setInputValue}
+          onSend={(text) => void sendMessage(text)}
+          onToggleRecording={handleToggleRecording}
+          onToggleSpeech={handleToggleSpeech}
+        />
+      </div>
     </div>
   )
+}
+
+function joinText(base: string, addition: string): string {
+  const trimmedBase = base.trim()
+  const trimmedAddition = addition.trim()
+  if (!trimmedAddition) {
+    return trimmedBase
+  }
+  if (!trimmedBase) {
+    return trimmedAddition
+  }
+  return `${trimmedBase} ${trimmedAddition}`
 }
 
 export default App

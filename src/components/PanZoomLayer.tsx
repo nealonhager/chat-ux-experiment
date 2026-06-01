@@ -1,7 +1,7 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { type ChatMessage } from '@/components/ChatBubbles'
 import { PanZoomContext, type PanZoomContextValue } from '@/components/PanZoomContext'
+import type { ConversationTree } from '@/lib/conversationTree'
 import { PanZoomMinimap } from '@/components/PanZoomMinimap'
 import {
   clampTransform,
@@ -20,8 +20,9 @@ type PanZoomLayerProps = {
   children: ReactNode
   className?: string
   showMinimap?: boolean
-  minimapMessages?: ChatMessage[]
+  tree?: ConversationTree
   minimapIsSending?: boolean
+  thinkingParentId?: string | null
 }
 
 function createInitialTransform(): PanZoomTransform {
@@ -39,7 +40,7 @@ function isInteractiveTarget(target: EventTarget | null): boolean {
 
   return Boolean(
     target.closest(
-      'input, textarea, button, select, option, a, label, [contenteditable="true"], [data-no-pan]',
+      'input, textarea, button, select, option, a, label, [contenteditable="true"], [data-no-pan], [data-chat-bubble]',
     ),
   )
 }
@@ -48,8 +49,9 @@ export function PanZoomLayer({
   children,
   className,
   showMinimap = true,
-  minimapMessages = [],
+  tree,
   minimapIsSending = false,
+  thinkingParentId = null,
 }: PanZoomLayerProps) {
   const [transform, setTransform] = useState<PanZoomTransform>(createInitialTransform)
   const [viewportSize, setViewportSize] = useState<ViewportSize>(getViewportSize)
@@ -190,7 +192,7 @@ export function PanZoomLayer({
       </div>
 
       {showMinimap ? (
-        <PanZoomMinimap messages={minimapMessages} isSending={minimapIsSending} />
+        <PanZoomMinimap tree={tree} isSending={minimapIsSending} thinkingParentId={thinkingParentId} />
       ) : null}
     </PanZoomContext.Provider>
   )

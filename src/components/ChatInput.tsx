@@ -7,6 +7,7 @@ type ChatInputProps = {
   isRecording?: boolean
   speechEnabled?: boolean
   isSpeaking?: boolean
+  placeholder?: string
   onChange: (value: string) => void
   onSend: (text: string) => void
   onToggleRecording: () => void
@@ -20,27 +21,27 @@ export function ChatInput({
   isRecording = false,
   speechEnabled = false,
   isSpeaking = false,
+  placeholder = 'Message...',
   onChange,
   onSend,
   onToggleRecording,
   onToggleSpeech,
 }: ChatInputProps) {
   return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-0 flex justify-center px-4 pb-6">
-      <div className="pointer-events-auto w-full max-w-2xl">
-        <ChatInputBar
-          value={value}
-          disabled={disabled}
-          isTranscribing={isTranscribing}
-          isRecording={isRecording}
-          speechEnabled={speechEnabled}
-          isSpeaking={isSpeaking}
-          onChange={onChange}
-          onSend={onSend}
-          onToggleRecording={onToggleRecording}
-          onToggleSpeech={onToggleSpeech}
-        />
-      </div>
+    <div className="pointer-events-auto w-full">
+      <ChatInputBar
+        value={value}
+        disabled={disabled}
+        isTranscribing={isTranscribing}
+        isRecording={isRecording}
+        speechEnabled={speechEnabled}
+        isSpeaking={isSpeaking}
+        placeholder={placeholder}
+        onChange={onChange}
+        onSend={onSend}
+        onToggleRecording={onToggleRecording}
+        onToggleSpeech={onToggleSpeech}
+      />
     </div>
   )
 }
