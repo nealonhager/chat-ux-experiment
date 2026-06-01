@@ -5,13 +5,10 @@ type ChatInputProps = {
   disabled?: boolean;
   isTranscribing?: boolean;
   isRecording?: boolean;
-  speechEnabled?: boolean;
-  isSpeaking?: boolean;
   placeholder?: string;
   onChange: (value: string) => void;
   onSend: (text: string) => void;
   onToggleRecording: () => void;
-  onToggleSpeech: () => void;
 };
 
 export function ChatInput({
@@ -19,13 +16,10 @@ export function ChatInput({
   disabled = false,
   isTranscribing = false,
   isRecording = false,
-  speechEnabled = false,
-  isSpeaking = false,
   placeholder = "Message...",
   onChange,
   onSend,
   onToggleRecording,
-  onToggleSpeech,
 }: ChatInputProps) {
   return (
     <div className="pointer-events-auto w-full">
@@ -34,13 +28,10 @@ export function ChatInput({
         disabled={disabled}
         isTranscribing={isTranscribing}
         isRecording={isRecording}
-        speechEnabled={speechEnabled}
-        isSpeaking={isSpeaking}
         placeholder={placeholder}
         onChange={onChange}
         onSend={onSend}
         onToggleRecording={onToggleRecording}
-        onToggleSpeech={onToggleSpeech}
       />
     </div>
   );

@@ -17,8 +17,8 @@ export const CHAT_LAYOUT = {
   assistantActionsHeight: 52,
   /** Embedded mini composer row (content → composer → actions) */
   composerEmbedHeight: 56,
-  composerGap: 8,
-  /** border-2 and active ring-offset slack */
+  composerGap: 12,
+  /** border-2 slack */
   chromeSlack: 8,
 } as const;
 
@@ -308,7 +308,7 @@ export function getCanvasLayoutFromTree(
       bubbleWidth,
       "assistant"
     );
-    const width = bubbleWidth * 0.88;
+    const width = bubbleWidth;
     const x = pendingParent
       ? pendingParent.x + (pendingParent.width - width) / 2
       : (WORLD_SIZE - width) / 2;

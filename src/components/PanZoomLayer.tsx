@@ -33,6 +33,12 @@ type PanZoomLayerProps = {
   tree?: ConversationTree;
   minimapIsSending?: boolean;
   thinkingParentId?: string | null;
+  speechEnabled?: boolean;
+  isSpeechLoading?: boolean;
+  isSpeaking?: boolean;
+  onToggleSpeech?: () => void;
+  hasMessages?: boolean;
+  onClearConversation?: () => void;
 };
 
 function createInitialTransform(): PanZoomTransform {
@@ -62,6 +68,12 @@ export function PanZoomLayer({
   tree,
   minimapIsSending = false,
   thinkingParentId = null,
+  speechEnabled = false,
+  isSpeechLoading = false,
+  isSpeaking = false,
+  onToggleSpeech,
+  hasMessages = false,
+  onClearConversation,
 }: PanZoomLayerProps) {
   const [transform, setTransform] = useState<PanZoomTransform>(
     createInitialTransform
@@ -234,6 +246,12 @@ export function PanZoomLayer({
           tree={tree}
           isSending={minimapIsSending}
           thinkingParentId={thinkingParentId}
+          speechEnabled={speechEnabled}
+          isSpeechLoading={isSpeechLoading}
+          isSpeaking={isSpeaking}
+          onToggleSpeech={onToggleSpeech}
+          hasMessages={hasMessages}
+          onClearConversation={onClearConversation}
         />
       ) : null}
     </PanZoomContext.Provider>

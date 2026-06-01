@@ -1,4 +1,4 @@
-import { Loader2, Mic, Send, Speech } from "lucide-react";
+import { Loader2, Mic, Send } from "lucide-react";
 import { useRef } from "react";
 
 import { cn } from "@/lib/utils";
@@ -8,14 +8,11 @@ export type ChatInputBarProps = {
   disabled?: boolean;
   isTranscribing?: boolean;
   isRecording?: boolean;
-  speechEnabled?: boolean;
-  isSpeaking?: boolean;
   size?: "default" | "mini";
   placeholder?: string;
   onChange: (value: string) => void;
   onSend: (text: string) => void;
   onToggleRecording: () => void;
-  onToggleSpeech: () => void;
 };
 
 export function ChatInputBar({
@@ -23,14 +20,11 @@ export function ChatInputBar({
   disabled = false,
   isTranscribing = false,
   isRecording = false,
-  speechEnabled = false,
-  isSpeaking = false,
   size = "default",
   placeholder = "Message...",
   onChange,
   onSend,
   onToggleRecording,
-  onToggleSpeech,
 }: ChatInputBarProps) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const isMini = size === "mini";
@@ -58,7 +52,7 @@ export function ChatInputBar({
   }
 
   const iconButtonClass = cn(
-    "inline-flex shrink-0 items-center justify-center rounded-lg transition-colors disabled:opacity-40",
+    "inline-flex shrink-0 cursor-pointer items-center justify-center rounded-lg transition-colors disabled:cursor-not-allowed disabled:opacity-40",
     controlSize
   );
 
@@ -73,28 +67,6 @@ export function ChatInputBar({
       data-no-pan=""
       onPointerDown={(event) => event.stopPropagation()}
     >
-      <button
-        type="button"
-        className={cn(
-          iconButtonClass,
-          speechEnabled
-            ? "bg-primary text-primary-foreground"
-            : "text-muted-foreground hover:bg-muted hover:text-foreground"
-        )}
-        onClick={onToggleSpeech}
-        disabled={disabled}
-        aria-label={
-          speechEnabled ? "Disable spoken responses" : "Enable spoken responses"
-        }
-        aria-pressed={speechEnabled}
-      >
-        {isSpeaking ? (
-          <Loader2 className={cn(iconClass, "animate-spin")} />
-        ) : (
-          <Speech className={iconClass} />
-        )}
-      </button>
-
       <button
         type="button"
         className={cn(

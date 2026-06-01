@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AnimatePresence, motion } from "motion/react";
+import { Speech } from "lucide-react";
 
+import { TextShimmer } from "@/components/loading-ui/text-shimmer";
+import { Button } from "@/components/ui/button";
 import { usePanZoom } from "@/components/PanZoomContext";
 import {
   getBubbleThreadSegments,
@@ -19,6 +23,12 @@ type PanZoomMinimapProps = {
   tree?: ConversationTree;
   isSending?: boolean;
   thinkingParentId?: string | null;
+  speechEnabled?: boolean;
+  isSpeechLoading?: boolean;
+  isSpeaking?: boolean;
+  onToggleSpeech?: () => void;
+  hasMessages?: boolean;
+  onClearConversation?: () => void;
   className?: string;
 };
 
@@ -33,10 +43,88 @@ function bubbleClassName(role: "user" | "assistant" | "thinking"): string {
   }
 }
 
+type SpeechToggleButtonProps = {
+  speechEnabled: boolean;
+  isSpeechLoading: boolean;
+  isSpeaking: boolean;
+  onToggleSpeech: () => void;
+};
+
+function SpeechToggleButton({
+  speechEnabled,
+  isSpeechLoading,
+  isSpeaking,
+  onToggleSpeech,
+}: SpeechToggleButtonProps) {
+  const speechLabelKey = isSpeechLoading
+    ? "loading"
+    : isSpeaking
+      ? "speaking"
+      : null;
+  const speechLabelText = isSpeechLoading
+    ? "Loading"
+    : isSpeaking
+      ? "Speaking"
+      : null;
+
+  return (
+    <motion.button
+      layout
+      type="button"
+      data-no-pan
+      className={cn(
+        "inline-flex w-full shrink-0 cursor-pointer items-center justify-center gap-1.5 overflow-hidden rounded-lg px-2 py-2 text-sm font-medium transition-colors",
+        speechEnabled
+          ? "bg-primary text-primary-foreground"
+          : "text-muted-foreground hover:bg-muted hover:text-foreground"
+      )}
+      transition={{ layout: { duration: 0.22, ease: [0.4, 0, 0.2, 1] } }}
+      onClick={onToggleSpeech}
+      aria-label={
+        isSpeechLoading
+          ? "Loading spoken response"
+          : isSpeaking
+            ? "Agent is speaking"
+            : speechEnabled
+              ? "Disable spoken responses"
+              : "Enable spoken responses"
+      }
+      aria-pressed={speechEnabled}
+    >
+      <motion.span layout="position" className="inline-flex shrink-0">
+        <Speech className="size-5" />
+      </motion.span>
+      <AnimatePresence mode="popLayout" initial={false}>
+        {speechLabelKey && speechLabelText ? (
+          <motion.span
+            key={speechLabelKey}
+            layout
+            initial={{ opacity: 0, width: 0, filter: "blur(4px)" }}
+            animate={{ opacity: 1, width: "auto", filter: "blur(0px)" }}
+            exit={{ opacity: 0, width: 0, filter: "blur(4px)" }}
+            transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
+            className="inline-flex overflow-hidden whitespace-nowrap"
+          >
+            <TextShimmer as="span" duration={1.5}>
+              {speechLabelText}
+            </TextShimmer>
+          </motion.span>
+        ) : null}
+      </AnimatePresence>
+    </motion.button>
+  );
+}
+
 export function PanZoomMinimap({
   tree,
   isSending = false,
   thinkingParentId = null,
+  speechEnabled = false,
+  isSpeechLoading = false,
+  isSpeaking = false,
+  onToggleSpeech,
+  hasMessages = false,
+  onClearConversation,
   className,
 }: PanZoomMinimapProps) {
   const { transform, viewportSize, panToWorldPoint } = usePanZoom();
@@ -131,7 +219,7 @@ export function PanZoomMinimap({
   return (
     <div
       className={cn(
-        "pointer-events-auto fixed left-4 top-4 z-40 rounded-xl border bg-card/95 p-2 backdrop-blur",
+        "pointer-events-auto fixed left-4 top-4 z-40 flex flex-col gap-2 rounded-xl border bg-card/95 p-2 backdrop-blur",
         className
       )}
     >
@@ -191,6 +279,27 @@ export function PanZoomMinimap({
           }}
         />
       </div>
+      {onToggleSpeech ? (
+        <SpeechToggleButton
+          speechEnabled={speechEnabled}
+          isSpeechLoading={isSpeechLoading}
+          isSpeaking={isSpeaking}
+          onToggleSpeech={onToggleSpeech}
+        />
+      ) : null}
+      {onClearConversation ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          data-no-pan
+          disabled={!hasMessages}
+          className="w-full text-muted-foreground"
+          onClick={onClearConversation}
+        >
+          Clear conversation
+        </Button>
+      ) : null}
     </div>
   );
 }

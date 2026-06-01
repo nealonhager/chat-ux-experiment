@@ -1,5 +1,6 @@
-import { Copy, GitFork, Loader2, Speech } from "lucide-react";
-import { type ReactNode, useEffect, useMemo } from "react";
+import { Copy } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
+import { type ReactNode, useEffect, useMemo, useRef } from "react";
 
 import { ChatInputBar } from "@/components/ChatInputBar";
 import { usePanZoom } from "@/components/PanZoomContext";
@@ -25,13 +26,10 @@ export type ComposerProps = {
   disabled?: boolean;
   isRecording?: boolean;
   isTranscribing?: boolean;
-  speechEnabled?: boolean;
-  isSpeaking?: boolean;
   placeholder?: string;
   onChange: (value: string) => void;
   onSend: (text: string) => void;
   onToggleRecording: () => void;
-  onToggleSpeech: () => void;
 };
 
 type ChatBubblesProps = {
@@ -41,11 +39,13 @@ type ChatBubblesProps = {
   isSending?: boolean;
   thinkingParentId?: string | null;
   errorMessage?: string;
-  speakingMessageId?: string | null;
-  onFork?: (messageId: string) => void;
   onCopy?: (content: string) => void;
-  onSpeak?: (messageId: string, content: string) => void;
   onSelectMessage?: (messageId: string) => void;
+};
+
+const COMPOSER_MOTION = {
+  duration: 0.24,
+  ease: [0.4, 0, 0.2, 1] as const,
 };
 
 function BubbleActionButton({
@@ -60,9 +60,12 @@ function BubbleActionButton({
   return (
     <button
       type="button"
-      onClick={onClick}
+      onClick={(event) => {
+        event.stopPropagation();
+        onClick();
+      }}
       aria-label={label}
-      className="rounded-md p-1.5 text-gray-400 transition-colors hover:bg-gray-200/80 hover:text-gray-600"
+      className="cursor-pointer rounded-md p-1.5 text-gray-400 transition-colors hover:bg-gray-200/80 hover:text-gray-600"
     >
       {children}
     </button>
@@ -74,24 +77,27 @@ type PlacedBubbleProps = {
   content: string;
   messageId?: string;
   isActive?: boolean;
-  isSpeaking?: boolean;
   showComposer?: boolean;
   composer?: ComposerProps;
-  onFork?: (messageId: string) => void;
   onCopy?: (content: string) => void;
-  onSpeak?: (messageId: string, content: string) => void;
   onSelect?: (messageId: string) => void;
   style: React.CSSProperties;
 };
 
-function EmbeddedComposer({ composer }: { composer: ComposerProps }) {
+function AnimatedEmbeddedComposer({ composer }: { composer: ComposerProps }) {
   return (
-    <div
-      className="mt-2 border-t border-gray-300/70 pt-2"
+    <motion.div
+      initial={{ opacity: 0, height: 0 }}
+      animate={{ opacity: 1, height: "auto" }}
+      exit={{ opacity: 0, height: 0 }}
+      transition={COMPOSER_MOTION}
+      className="overflow-hidden"
       onClick={(event) => event.stopPropagation()}
     >
-      <ChatInputBar size="mini" {...composer} />
-    </div>
+      <div className="border-t border-gray-300/70 pt-3">
+        <ChatInputBar size="mini" {...composer} />
+      </div>
+    </motion.div>
   );
 }
 
@@ -100,17 +106,13 @@ function PlacedChatBubble({
   content,
   messageId,
   isActive = false,
-  isSpeaking = false,
   showComposer = false,
   composer,
-  onFork,
   onCopy,
-  onSpeak,
   onSelect,
   style,
 }: PlacedBubbleProps) {
-  const showActions =
-    role === "assistant" && messageId && onFork && onCopy && onSpeak;
+  const showActions = role === "assistant" && messageId && onCopy;
 
   function handleBubbleClick(): void {
     if (messageId && onSelect) {
@@ -122,26 +124,31 @@ function PlacedChatBubble({
     <div
       data-no-pan
       data-chat-bubble
-      role={messageId && !showComposer ? "button" : undefined}
-      tabIndex={messageId && onSelect && !showComposer ? 0 : undefined}
+      role={messageId ? "button" : undefined}
+      tabIndex={messageId && onSelect ? 0 : undefined}
       className={cn(
-        "pointer-events-auto absolute rounded-lg px-4 py-3 text-sm font-medium transition-shadow",
-        isActive ? "border-4" : "border-2",
+        "pointer-events-auto absolute flex flex-col gap-3 rounded-lg border-2 px-4 py-3 text-sm font-medium transition-shadow",
         role === "user"
           ? "border-blue-300 bg-blue-50 text-blue-700"
           : "border-gray-300 bg-gray-100 text-gray-500",
-        messageId &&
-          onSelect &&
-          !showComposer &&
-          "cursor-pointer hover:shadow-md"
+        role === "assistant" &&
+          isActive &&
+          "ring-4 ring-blue-500 ring-offset-2",
+        messageId && onSelect && "cursor-pointer hover:shadow-md"
       )}
       style={style}
-      onClick={
-        messageId && onSelect && !showComposer ? handleBubbleClick : undefined
-      }
+      onClick={messageId && onSelect ? handleBubbleClick : undefined}
       onKeyDown={
-        messageId && onSelect && !showComposer
+        messageId && onSelect
           ? (event) => {
+              const target = event.target;
+              if (
+                target instanceof HTMLElement &&
+                target !== event.currentTarget &&
+                target.closest("textarea, input, [contenteditable='true']")
+              ) {
+                return;
+              }
               if (event.key === "Enter" || event.key === " ") {
                 event.preventDefault();
                 handleBubbleClick();
@@ -151,35 +158,18 @@ function PlacedChatBubble({
       }
     >
       <div>{content}</div>
-      {showComposer && composer ? (
-        <EmbeddedComposer composer={composer} />
-      ) : null}
+      <AnimatePresence initial={false}>
+        {showComposer && composer ? (
+          <AnimatedEmbeddedComposer composer={composer} />
+        ) : null}
+      </AnimatePresence>
       {showActions ? (
-        <div
-          className="mt-2 flex gap-0.5 border-t border-gray-300/70 pt-2"
-          onClick={(event) => event.stopPropagation()}
-        >
-          <BubbleActionButton
-            label="Set active — next message branches from here"
-            onClick={() => onFork(messageId)}
-          >
-            <GitFork className="size-4 rotate-180" />
-          </BubbleActionButton>
+        <div className="flex gap-0.5">
           <BubbleActionButton
             label="Copy message"
             onClick={() => onCopy(content)}
           >
             <Copy className="size-4" />
-          </BubbleActionButton>
-          <BubbleActionButton
-            label="Speak message"
-            onClick={() => onSpeak(messageId, content)}
-          >
-            {isSpeaking ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : (
-              <Speech className="size-4" />
-            )}
           </BubbleActionButton>
         </div>
       ) : null}
@@ -187,20 +177,9 @@ function PlacedChatBubble({
   );
 }
 
-function PlacedRootComposer({
-  composer,
-  style,
-}: {
-  composer: ComposerProps;
-  style: React.CSSProperties;
-}) {
+function PlacedRootComposer({ composer }: { composer: ComposerProps }) {
   return (
-    <div
-      data-no-pan
-      data-chat-bubble
-      className="pointer-events-auto absolute rounded-lg border-2 border-blue-300 bg-blue-50 px-4 py-3 text-sm font-medium text-blue-700"
-      style={style}
-    >
+    <div data-no-pan data-chat-bubble>
       <ChatInputBar size="mini" {...composer} />
     </div>
   );
@@ -218,6 +197,7 @@ function ActiveNodeViewportSync({
   composerAnchorId: ComposerAnchorId | null;
 }) {
   const { transform, viewportSize, panToWorldPoint } = usePanZoom();
+  const prevComposerAnchorIdRef = useRef(composerAnchorId);
 
   const layout = useMemo(
     () =>
@@ -230,12 +210,17 @@ function ActiveNodeViewportSync({
   );
 
   useEffect(() => {
+    const anchorChanged = prevComposerAnchorIdRef.current !== composerAnchorId;
+    prevComposerAnchorIdRef.current = composerAnchorId;
+
+    if (!anchorChanged || composerAnchorId === null) {
+      return;
+    }
+
     const focusRect =
       composerAnchorId === COMPOSER_ROOT_ANCHOR
         ? layout.composerSlot
-        : composerAnchorId
-          ? layout.bubbles.find((bubble) => bubble.id === composerAnchorId)
-          : null;
+        : layout.bubbles.find((bubble) => bubble.id === composerAnchorId);
 
     if (!focusRect) {
       return;
@@ -274,10 +259,7 @@ export function ChatBubbles({
   isSending = false,
   thinkingParentId = null,
   errorMessage = "",
-  speakingMessageId = null,
-  onFork,
   onCopy,
-  onSpeak,
   onSelectMessage,
 }: ChatBubblesProps) {
   const layout = useMemo(
@@ -373,16 +355,12 @@ export function ChatBubbles({
                   content={message.content}
                   messageId={message.id}
                   isActive={
-                    message.role === "assistant"
-                      ? tree.activeNodeId === message.id
-                      : tree.activeNodeId === message.parentId
+                    message.role === "assistant" &&
+                    tree.activeNodeId === message.id
                   }
-                  isSpeaking={speakingMessageId === message.id}
                   showComposer={embedComposer}
                   composer={embedComposer ? composer : undefined}
-                  onFork={message.role === "assistant" ? onFork : undefined}
                   onCopy={message.role === "assistant" ? onCopy : undefined}
-                  onSpeak={message.role === "assistant" ? onSpeak : undefined}
                   onSelect={
                     message.role === "assistant" ? onSelectMessage : undefined
                   }
@@ -397,18 +375,27 @@ export function ChatBubbles({
               );
             })
           : null}
-        {showRootComposer ? (
-          <PlacedRootComposer
-            composer={composer}
-            style={{
-              left: composerSlot.x,
-              top: composerSlot.y,
-              width: composerSlot.width,
-              minHeight: composerSlot.height,
-              zIndex: placedBubbles.length + 1,
-            }}
-          />
-        ) : null}
+        <AnimatePresence initial={false}>
+          {showRootComposer ? (
+            <motion.div
+              key="root-composer"
+              initial={{ opacity: 0, scale: 0.97, y: 8 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.97, y: 8 }}
+              transition={COMPOSER_MOTION}
+              className="pointer-events-auto absolute"
+              style={{
+                left: composerSlot!.x,
+                top: composerSlot!.y,
+                width: composerSlot!.width,
+                minHeight: composerSlot!.height,
+                zIndex: placedBubbles.length + 1,
+              }}
+            >
+              <PlacedRootComposer composer={composer!} />
+            </motion.div>
+          ) : null}
+        </AnimatePresence>
         {errorMessage ? (
           <p className="pointer-events-auto absolute left-1/2 top-8 w-full max-w-md -translate-x-1/2 px-4 text-center text-sm text-destructive">
             {errorMessage}

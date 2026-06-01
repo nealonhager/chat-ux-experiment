@@ -25,11 +25,11 @@ The pan-zoom surface where the entire conversation tree is laid out and visible 
 _Avoid_: Viewport, board, workspace
 
 **Active node**:
-The assistant message the user is currently working from; shown with a distinct border on the canvas. Only assistant bubbles are clickable to set the active node; user bubbles are not interactive.
+The assistant message the user is currently working from; shown with a distinct ring on the canvas. Only assistant bubbles are clickable to set the active node; user bubbles are not interactive.
 _Avoid_: Active tip, focus, cursor, selected message
 
 **Composer**:
-The single text/voice input used to send a new user message as a child of the active node (a new sibling branch when that assistant already has children). When an assistant is active, the Composer is embedded at the bottom of that assistant bubble — not a separate bubble. At Start, before any messages exist, the Composer is a UI-only slot at the root styled like a user bubble — not a Message until the user sends. Each send anchor (root slot or active assistant) keeps its own draft text in memory; switching active node restores that anchor’s draft. Drafts are not persisted — reload clears them. Switching active node while voice recording stops the recording; any partial transcript stays in the previous anchor’s draft.
+The single text/voice input used to send a new user message as a child of the active node (a new sibling branch when that assistant already has children). When an assistant is active, the Composer is embedded at the bottom of that assistant bubble — not a separate bubble. At Start, before any messages exist, the Composer is a UI-only slot at the root — not a Message until the user sends. Each send anchor (root slot or active assistant) keeps its own draft text in memory; switching active node restores that anchor’s draft. Drafts are not persisted — reload clears them. Switching active node while voice recording stops the recording; any partial transcript stays in the previous anchor’s draft.
 _Avoid_: Thread input, main input, prompt bar, composer bubble, shared draft
 
 **Model context**:
@@ -53,11 +53,11 @@ On the canvas, depth flows downward and sibling branches spread horizontally fro
 _Avoid_: Column layout, mind map
 
 **Start**:
-With no messages yet, the Composer appears on the canvas as a root node styled like a user bubble (not viewport-fixed). The first send creates the root user message from that input; Continue sets the active node on the first assistant reply.
+With no messages yet, the Composer appears on the canvas as a root slot (not viewport-fixed). The first send creates the root user message from that input; Continue sets the active node on the first assistant reply.
 _Avoid_: New chat, empty state
 
 **Composer placement**:
-When an assistant is the active node, the Composer lives inside that bubble — below the message content and above the action row (fork, copy, speak). Layout expands the active bubble to fit the Composer; existing children shift down instantly when the active node changes (no animation). At Start, the Composer is a standalone root slot on the canvas (user-bubble styling) until the first send creates the root user message.
+When an assistant is the active node, the Composer lives inside that bubble — below the message content and above the action row (copy). Layout expands the active bubble to fit the Composer; existing children shift down instantly when the active node changes (no animation). At Start, the Composer is a standalone root slot on the canvas until the first send creates the root user message.
 _Avoid_: Fixed prompt bar, docked input, separate composer bubble below active node
 
 **Orphaned tree**:
@@ -69,7 +69,7 @@ The active assistant bubble that contained the Composer when the user last sent.
 _Avoid_: Pending parent, draft position
 
 **Chrome**:
-Global actions (e.g. Clear conversation) stay viewport-fixed. The Composer and conversation content live on the canvas. Active selection is shown only by the active node border — no duplicate “Active: …” label on screen.
+Global actions (e.g. Clear conversation) live in the minimap panel below the speech toggle. The Composer and conversation content live on the canvas. Active selection is shown only by the active node ring — no duplicate “Active: …” label on screen.
 _Avoid_: HUD, status bar, docked prompt
 
 **Viewport**:

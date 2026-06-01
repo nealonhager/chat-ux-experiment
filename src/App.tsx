@@ -13,7 +13,6 @@ import {
   addAssistantMessage,
   addUserMessage,
   clearConversation,
-  forkConversation,
   getModelContext,
   loadConversationFromStorage,
   saveConversationToStorage,
@@ -47,10 +46,8 @@ function App() {
   const [isRecording, setIsRecording] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [speechEnabled, setSpeechEnabled] = useState(getStoredSpeechEnabled);
+  const [isSpeechLoading, setIsSpeechLoading] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
-  const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(
-    null
-  );
 
   const transcriptionSessionRef = useRef<RealtimeTranscriptionSession | null>(
     null
@@ -106,23 +103,25 @@ function App() {
     };
   }, []);
 
-  async function speakResponse(
-    text: string,
-    messageId?: string
-  ): Promise<void> {
-    setIsSpeaking(true);
-    setSpeakingMessageId(messageId ?? null);
+  async function speakResponse(text: string): Promise<void> {
+    setIsSpeechLoading(true);
+    setIsSpeaking(false);
     setErrorMessage("");
 
     try {
-      await speechPlayerRef.current.speak(text);
+      await speechPlayerRef.current.speak(text, {
+        onAudioReady: () => {
+          setIsSpeechLoading(false);
+          setIsSpeaking(true);
+        },
+      });
     } catch (error) {
       setErrorMessage(
         error instanceof Error ? error.message : "Failed to play speech."
       );
     } finally {
+      setIsSpeechLoading(false);
       setIsSpeaking(false);
-      setSpeakingMessageId(null);
     }
   }
 
@@ -137,14 +136,6 @@ function App() {
 
     transcriptionSessionRef.current = null;
     session.commitAndClose();
-  }
-
-  function handleFork(messageId: string): void {
-    if (isRecording || isConnecting) {
-      stopRecording();
-    }
-    setTree((current) => forkConversation(current, messageId));
-    setErrorMessage("");
   }
 
   function handleSelectMessage(messageId: string): void {
@@ -167,11 +158,6 @@ function App() {
         error instanceof Error ? error.message : "Failed to copy message."
       );
     }
-  }
-
-  function handleSpeakMessage(messageId: string, content: string): void {
-    speechPlayerRef.current.stop();
-    void speakResponse(content, messageId);
   }
 
   function handleClearConversation(): void {
@@ -235,14 +221,20 @@ function App() {
       }
 
       const data = (await response.json()) as { content: string };
-      setTree((current) =>
-        addAssistantMessage(current, userMessage.id, data.content)
-      );
-      setSendAnchorId(null);
+      setTree((current) => {
+        const nextTree = addAssistantMessage(
+          current,
+          userMessage.id,
+          data.content
+        );
 
-      if (speechEnabledRef.current) {
-        void speakResponse(data.content);
-      }
+        if (speechEnabledRef.current) {
+          void speakResponse(data.content);
+        }
+
+        return nextTree;
+      });
+      setSendAnchorId(null);
     } catch (error) {
       setErrorMessage(
         error instanceof Error ? error.message : "Failed to send message."
@@ -331,8 +323,8 @@ function App() {
       localStorage.setItem(SPEECH_STORAGE_KEY, String(next));
       if (!next) {
         speechPlayerRef.current.stop();
+        setIsSpeechLoading(false);
         setIsSpeaking(false);
-        setSpeakingMessageId(null);
       }
       return next;
     });
@@ -350,13 +342,10 @@ function App() {
           disabled: isSending,
           isRecording,
           isTranscribing: isConnecting,
-          speechEnabled,
-          isSpeaking,
           placeholder: composerPlaceholder,
           onChange: setInputValue,
           onSend: (text) => void sendMessage(text),
           onToggleRecording: handleToggleRecording,
-          onToggleSpeech: handleToggleSpeech,
         }
       : null;
 
@@ -366,6 +355,12 @@ function App() {
         tree={tree}
         minimapIsSending={isSending}
         thinkingParentId={thinkingParentId}
+        speechEnabled={speechEnabled}
+        isSpeechLoading={isSpeechLoading}
+        isSpeaking={isSpeaking}
+        onToggleSpeech={handleToggleSpeech}
+        hasMessages={messageCount > 0}
+        onClearConversation={handleClearConversation}
       >
         <DotGridBackground />
         <ChatBubbles
@@ -375,23 +370,10 @@ function App() {
           isSending={isSending}
           thinkingParentId={thinkingParentId}
           errorMessage={errorMessage}
-          speakingMessageId={speakingMessageId}
-          onFork={handleFork}
           onCopy={(content) => void handleCopy(content)}
-          onSpeak={handleSpeakMessage}
           onSelectMessage={handleSelectMessage}
         />
       </PanZoomLayer>
-
-      {messageCount > 0 ? (
-        <button
-          type="button"
-          onClick={handleClearConversation}
-          className="pointer-events-auto fixed bottom-4 right-4 z-50 rounded-md border border-input bg-card/95 px-3 py-1.5 text-xs text-muted-foreground backdrop-blur transition-colors hover:bg-muted"
-        >
-          Clear conversation
-        </button>
-      ) : null}
     </div>
   );
 }
