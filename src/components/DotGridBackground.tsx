@@ -1,9 +1,9 @@
-import { dotGridConfig } from '@/config/dotGrid'
-import { WORLD_SIZE } from '@/lib/panZoom'
+import { dotGridConfig } from "@/config/dotGrid";
+import { WORLD_SIZE } from "@/lib/panZoom";
 
 export function DotGridBackground() {
-  const { dotSize, spacing, color, angle } = dotGridConfig
-  const patternId = 'dot-grid'
+  const { dotSize, spacing, color, angle } = dotGridConfig;
+  const patternId = "dot-grid";
 
   return (
     <svg
@@ -14,8 +14,18 @@ export function DotGridBackground() {
       viewBox={`0 0 ${WORLD_SIZE} ${WORLD_SIZE}`}
     >
       <defs>
-        <pattern id={patternId} width={spacing} height={spacing} patternUnits="userSpaceOnUse">
-          <circle cx={spacing / 2} cy={spacing / 2} r={dotSize / 2} fill={color} />
+        <pattern
+          id={patternId}
+          width={spacing}
+          height={spacing}
+          patternUnits="userSpaceOnUse"
+        >
+          <circle
+            cx={spacing / 2}
+            cy={spacing / 2}
+            r={dotSize / 2}
+            fill={color}
+          />
         </pattern>
       </defs>
       <rect
@@ -25,5 +35,5 @@ export function DotGridBackground() {
         transform={`rotate(${angle} ${WORLD_SIZE / 2} ${WORLD_SIZE / 2})`}
       />
     </svg>
-  )
+  );
 }

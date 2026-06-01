@@ -1,18 +1,18 @@
-import { ChatInputBar } from './ChatInputBar'
+import { ChatInputBar } from "./ChatInputBar";
 
 type ChatInputProps = {
-  value: string
-  disabled?: boolean
-  isTranscribing?: boolean
-  isRecording?: boolean
-  speechEnabled?: boolean
-  isSpeaking?: boolean
-  placeholder?: string
-  onChange: (value: string) => void
-  onSend: (text: string) => void
-  onToggleRecording: () => void
-  onToggleSpeech: () => void
-}
+  value: string;
+  disabled?: boolean;
+  isTranscribing?: boolean;
+  isRecording?: boolean;
+  speechEnabled?: boolean;
+  isSpeaking?: boolean;
+  placeholder?: string;
+  onChange: (value: string) => void;
+  onSend: (text: string) => void;
+  onToggleRecording: () => void;
+  onToggleSpeech: () => void;
+};
 
 export function ChatInput({
   value,
@@ -21,7 +21,7 @@ export function ChatInput({
   isRecording = false,
   speechEnabled = false,
   isSpeaking = false,
-  placeholder = 'Message...',
+  placeholder = "Message...",
   onChange,
   onSend,
   onToggleRecording,
@@ -43,5 +43,5 @@ export function ChatInput({
         onToggleSpeech={onToggleSpeech}
       />
     </div>
-  )
+  );
 }
