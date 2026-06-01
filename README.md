@@ -1,6 +1,21 @@
-# GPT Realtime Voice Demo
+# GPT Realtime Chat
 
-A very small React + Express app for talking to `gpt-realtime-2` over audio in the browser.
+An experiment in what talking to an LLM could feel like.
+
+Most chat UIs assume one linear thread: you type, the model replies, repeat. This app tries something different — a **conversation tree** on a pan-zoom canvas, where you can fork from any assistant reply, compare branches side by side, and keep going from whichever answer you actually want to build on.
+
+The composer lives on the canvas itself (embedded in the active assistant bubble, not docked at the bottom of the screen). You can type or dictate with your voice, pick the chat model per send, and optionally hear replies read aloud with configurable voice, speed, and style.
+
+This is a small React + Express playground, not a product. The point is to explore interaction patterns — branching, spatial layout, voice in/out, model choice — and see what sticks.
+
+## What you can do
+
+- Start a conversation and watch it grow as a tree, not a scrollback
+- Click an assistant message to make it active, then send from there (creating a sibling branch)
+- Pan and zoom the canvas; use the minimap to jump around
+- Record voice input via OpenAI Realtime transcription
+- Toggle spoken responses and tune TTS in the minimap panel
+- Choose the chat model from the composer
 
 ## Setup
 
@@ -22,84 +37,11 @@ A very small React + Express app for talking to `gpt-realtime-2` over audio in t
    npm run dev
    ```
 
-4. Open the Vite URL, press **Start conversation**, and allow microphone access.
+4. Open the Vite URL, start a conversation on the canvas, and allow microphone access if you want voice input.
 
 ## Notes
 
-- The browser connects with WebRTC.
-- The local Express server posts the SDP offer to OpenAI at `/v1/realtime/calls`.
+- Voice transcription uses WebRTC; the local Express server forwards the SDP offer to OpenAI at `/v1/realtime/calls`.
+- Chat and speech requests go through the local server, which validates model and voice choices against an allowlist.
 - The app also accepts `OPENAI_API_KEY` if you already use that variable name.
-
-# React + TypeScript + Vite
-
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
-
-Currently, two official plugins are available:
-
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(["dist"]),
-  {
-    files: ["**/*.{ts,tsx}"],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ["./tsconfig.node.json", "./tsconfig.app.json"],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-]);
-```
-
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
-
-```js
-// eslint.config.js
-import reactX from "eslint-plugin-react-x";
-import reactDom from "eslint-plugin-react-dom";
-
-export default defineConfig([
-  globalIgnores(["dist"]),
-  {
-    files: ["**/*.{ts,tsx}"],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs["recommended-typescript"],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ["./tsconfig.node.json", "./tsconfig.app.json"],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-]);
-```
+- Domain terms and design decisions live in [`CONTEXT.md`](CONTEXT.md) and [`docs/adr/`](docs/adr/).
