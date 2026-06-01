@@ -13,12 +13,11 @@ export const CHAT_LAYOUT = {
   fontSize: 14,
   lineHeight: 20,
   minBubbleHeight: 44,
-  /** Action row + divider below assistant text */
-  assistantActionsHeight: 52,
-  /** Embedded mini composer row (content → composer → actions) */
+  /** Footer row (timestamp, copy, model) */
+  messageFooterHeight: 28,
+  /** Embedded mini composer row (content → actions → composer) */
   composerEmbedHeight: 56,
   composerGap: 12,
-  /** border-2 slack */
   chromeSlack: 8,
 } as const;
 
@@ -67,11 +66,15 @@ function estimateBubbleHeight(
   let height =
     CHAT_LAYOUT.bubblePaddingY * 2 + textHeight + CHAT_LAYOUT.chromeSlack;
 
+  if (role === "user") {
+    height += CHAT_LAYOUT.messageFooterHeight;
+  }
+
   if (role === "assistant") {
     if (embedComposer) {
       height += CHAT_LAYOUT.composerGap + CHAT_LAYOUT.composerEmbedHeight;
     }
-    height += CHAT_LAYOUT.assistantActionsHeight;
+    height += CHAT_LAYOUT.messageFooterHeight;
   }
 
   return Math.max(CHAT_LAYOUT.minBubbleHeight, height);
@@ -299,32 +302,41 @@ export function getCanvasLayoutFromTree(
 
   if (isSending) {
     const parentMessageId = thinkingParentId ?? null;
-    const pendingParent = parentMessageId
-      ? bubbles.find((bubble) => bubble.id === parentMessageId)
-      : undefined;
+    const hasStreamingReply =
+      parentMessageId !== null &&
+      Object.values(tree.messages).some(
+        (message) =>
+          message.role === "assistant" && message.parentId === parentMessageId
+      );
 
-    const height = estimateBubbleHeight(
-      "Thinking...",
-      bubbleWidth,
-      "assistant"
-    );
-    const width = bubbleWidth;
-    const x = pendingParent
-      ? pendingParent.x + (pendingParent.width - width) / 2
-      : (WORLD_SIZE - width) / 2;
-    const y = pendingParent
-      ? pendingParent.y + pendingParent.height + CHAT_LAYOUT.gap
-      : CHAT_LAYOUT.paddingTop;
+    if (!hasStreamingReply) {
+      const pendingParent = parentMessageId
+        ? bubbles.find((bubble) => bubble.id === parentMessageId)
+        : undefined;
 
-    bubbles.push({
-      id: "thinking",
-      role: "thinking",
-      parentId: pendingParent?.id ?? null,
-      x,
-      y,
-      width,
-      height,
-    });
+      const height = estimateBubbleHeight(
+        "Thinking...",
+        bubbleWidth,
+        "assistant"
+      );
+      const width = bubbleWidth;
+      const x = pendingParent
+        ? pendingParent.x + (pendingParent.width - width) / 2
+        : (WORLD_SIZE - width) / 2;
+      const y = pendingParent
+        ? pendingParent.y + pendingParent.height + CHAT_LAYOUT.gap
+        : CHAT_LAYOUT.paddingTop;
+
+      bubbles.push({
+        id: "thinking",
+        role: "thinking",
+        parentId: pendingParent?.id ?? null,
+        x,
+        y,
+        width,
+        height,
+      });
+    }
   }
 
   const composerSlot =

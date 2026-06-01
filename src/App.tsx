@@ -12,6 +12,8 @@ import {
 import {
   addAssistantMessage,
   addUserMessage,
+  updateAssistantMessageContent,
+  updateAssistantMessageModel,
   clearConversation,
   getModelContext,
   loadConversationFromStorage,
@@ -19,6 +21,7 @@ import {
   setActiveFromMessageClick,
   type ConversationTree,
 } from "./lib/conversationTree";
+import { readChatStream } from "./lib/chatStream";
 import { SpeechPlayer } from "./lib/speechSynthesis";
 
 type ChatMessagePayload = {
@@ -237,20 +240,61 @@ function App() {
         throw new Error((await response.text()) || "Could not get a response.");
       }
 
-      const data = (await response.json()) as { content: string };
-      setTree((current) => {
-        const nextTree = addAssistantMessage(
-          current,
-          userMessage.id,
-          data.content
-        );
+      const assistantMessageId = crypto.randomUUID();
+      let streamedContent = "";
+      let responseModel: string | undefined;
 
-        if (speechEnabledRef.current) {
-          void speakResponse(data.content);
+      await readChatStream(response, (event) => {
+        if (event.type === "error") {
+          throw new Error(event.message);
         }
 
-        return nextTree;
+        if (event.type === "meta") {
+          responseModel = event.model;
+          setTree((current) => {
+            if (!current.messages[assistantMessageId]) {
+              return current;
+            }
+
+            return updateAssistantMessageModel(
+              current,
+              assistantMessageId,
+              event.model
+            );
+          });
+          return;
+        }
+
+        if (event.type === "delta") {
+          streamedContent += event.delta;
+          setTree((current) => {
+            if (!current.messages[assistantMessageId]) {
+              return addAssistantMessage(
+                current,
+                userMessage.id,
+                streamedContent,
+                assistantMessageId,
+                responseModel
+              ).tree;
+            }
+
+            return updateAssistantMessageContent(
+              current,
+              assistantMessageId,
+              streamedContent
+            );
+          });
+        }
       });
+
+      if (!streamedContent.trim()) {
+        throw new Error("The model returned an empty response.");
+      }
+
+      if (speechEnabledRef.current) {
+        void speakResponse(streamedContent);
+      }
+
       setSendAnchorId(null);
     } catch (error) {
       resumeRecordingAfterReplyRef.current = false;

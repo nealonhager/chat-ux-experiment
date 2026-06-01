@@ -34,7 +34,10 @@ export function loadConversationFromStorage(): ConversationTree {
         typeof message.id === "string" &&
         (message.role === "user" || message.role === "assistant") &&
         typeof message.content === "string" &&
-        (message.parentId === null || typeof message.parentId === "string")
+        (message.parentId === null || typeof message.parentId === "string") &&
+        (message.model === undefined || typeof message.model === "string") &&
+        (message.createdAt === undefined ||
+          typeof message.createdAt === "string")
       ) {
         messages[message.id] = message;
       }
@@ -132,6 +135,7 @@ export function addUserMessage(
     role: "user",
     content,
     parentId: tree.activeNodeId,
+    createdAt: new Date().toISOString(),
   };
 
   return {
@@ -146,18 +150,63 @@ export function addUserMessage(
 export function addAssistantMessage(
   tree: ConversationTree,
   parentUserId: string,
-  content: string
-): ConversationTree {
+  content: string,
+  messageId: string = crypto.randomUUID(),
+  model?: string
+): { tree: ConversationTree; assistantMessage: ChatMessage } {
   const assistantMessage: ChatMessage = {
-    id: crypto.randomUUID(),
+    id: messageId,
     role: "assistant",
     content,
     parentId: parentUserId,
+    createdAt: new Date().toISOString(),
+    ...(model ? { model } : {}),
   };
 
   return {
-    messages: { ...tree.messages, [assistantMessage.id]: assistantMessage },
-    activeNodeId: assistantMessage.id,
+    tree: {
+      messages: { ...tree.messages, [assistantMessage.id]: assistantMessage },
+      activeNodeId: assistantMessage.id,
+    },
+    assistantMessage,
+  };
+}
+
+export function updateAssistantMessageContent(
+  tree: ConversationTree,
+  messageId: string,
+  content: string
+): ConversationTree {
+  const message = tree.messages[messageId];
+  if (!message || message.role !== "assistant") {
+    return tree;
+  }
+
+  return {
+    ...tree,
+    messages: {
+      ...tree.messages,
+      [messageId]: { ...message, content },
+    },
+  };
+}
+
+export function updateAssistantMessageModel(
+  tree: ConversationTree,
+  messageId: string,
+  model: string
+): ConversationTree {
+  const message = tree.messages[messageId];
+  if (!message || message.role !== "assistant") {
+    return tree;
+  }
+
+  return {
+    ...tree,
+    messages: {
+      ...tree.messages,
+      [messageId]: { ...message, model },
+    },
   };
 }
 

@@ -35,11 +35,10 @@ type PanZoomMinimapProps = {
 function bubbleClassName(role: "user" | "assistant" | "thinking"): string {
   switch (role) {
     case "user":
-      return "bg-blue-400/90";
+      return "bg-black/90";
     case "assistant":
-      return "border border-gray-300 bg-white/90";
     case "thinking":
-      return "bg-muted/90";
+      return "bg-white/90";
   }
 }
 

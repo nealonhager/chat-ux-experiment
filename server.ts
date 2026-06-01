@@ -90,43 +90,140 @@ function getApiErrorMessage(
   return responseBody.error?.message ?? fallback;
 }
 
+type ChatCompletionChunk = {
+  choices?: Array<{ delta?: { content?: string } }>;
+  error?: { message?: string };
+};
+
+type ChatStreamClientEvent =
+  | { delta: string }
+  | { done: true }
+  | { model: string }
+  | { error: string };
+
+function getChatModel(): string {
+  return process.env.CHAT_MODEL ?? "gpt-4o-mini";
+}
+
+function writeChatStreamEvent(
+  response: Response,
+  event: ChatStreamClientEvent
+): void {
+  response.write(`data: ${JSON.stringify(event)}\n\n`);
+}
+
+function parseOpenAiSsePayload(payload: string): ChatStreamClientEvent[] {
+  if (payload === "[DONE]") {
+    return [{ done: true }];
+  }
+
+  try {
+    const chunk = JSON.parse(payload) as ChatCompletionChunk;
+    const delta = chunk.choices?.[0]?.delta?.content;
+    if (typeof delta === "string" && delta.length > 0) {
+      return [{ delta }];
+    }
+  } catch {
+    return [];
+  }
+
+  return [];
+}
+
 /**
- * Send messages to the Chat Completions API and return the assistant reply.
+ * Stream assistant tokens from the Chat Completions API to the browser as SSE.
  */
-async function createChatCompletion(messages: ChatMessage[]): Promise<string> {
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${getApiKey()}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: process.env.CHAT_MODEL ?? "gpt-4o-mini",
-      messages: [
-        {
-          role: "system",
-          content:
-            "You are a helpful assistant. Keep answers concise and clear.",
-        },
-        ...messages,
-      ],
-    }),
-  });
+async function streamChatCompletion(
+  messages: ChatMessage[],
+  response: Response
+): Promise<void> {
+  const model = getChatModel();
+  const openAiResponse = await fetch(
+    "https://api.openai.com/v1/chat/completions",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${getApiKey()}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        stream: true,
+        messages: [
+          {
+            role: "system",
+            content:
+              "You are a helpful assistant. Keep answers concise and clear.",
+          },
+          ...messages,
+        ],
+      }),
+    }
+  );
 
-  const responseBody = (await response.json()) as ChatCompletionResponse;
-
-  if (!response.ok) {
+  if (!openAiResponse.ok) {
+    const responseBody =
+      (await openAiResponse.json()) as ChatCompletionResponse;
     throw new Error(
       getApiErrorMessage(responseBody, "Chat completion request failed.")
     );
   }
 
-  const content = responseBody.choices?.[0]?.message?.content;
-  if (typeof content !== "string" || !content.trim()) {
-    throw new Error("The model returned an empty response.");
+  if (!openAiResponse.body) {
+    throw new Error("The model returned an empty stream.");
   }
 
-  return content;
+  response.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+  response.setHeader("Cache-Control", "no-cache, no-transform");
+  response.setHeader("Connection", "keep-alive");
+  response.flushHeaders();
+  writeChatStreamEvent(response, { model });
+
+  const reader = openAiResponse.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let hasContent = false;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+
+      buffer += decoder.decode(value, { stream: true });
+
+      const events = buffer.split("\n\n");
+      buffer = events.pop() ?? "";
+
+      for (const eventBlock of events) {
+        for (const line of eventBlock.split("\n")) {
+          if (!line.startsWith("data: ")) {
+            continue;
+          }
+
+          for (const clientEvent of parseOpenAiSsePayload(line.slice(6))) {
+            if ("delta" in clientEvent) {
+              hasContent = true;
+            }
+            writeChatStreamEvent(response, clientEvent);
+          }
+        }
+      }
+    }
+
+    if (!hasContent) {
+      throw new Error("The model returned an empty response.");
+    }
+
+    writeChatStreamEvent(response, { done: true });
+    response.end();
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Chat stream failed.";
+    writeChatStreamEvent(response, { error: message });
+    response.end();
+  }
 }
 
 type SpeechErrorResponse = {
@@ -176,8 +273,7 @@ app.post("/chat", async (request: Request, response: Response) => {
   }
 
   try {
-    const content = await createChatCompletion(messages as ChatMessage[]);
-    response.json({ content });
+    await streamChatCompletion(messages as ChatMessage[], response);
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Unknown server error.";

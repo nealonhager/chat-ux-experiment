@@ -10,6 +10,7 @@ import {
   getBubbleThreadSegments,
   getCanvasLayoutFromTree,
 } from "@/lib/chatBubbleLayout";
+import { formatMessageTimestamp } from "@/lib/formatMessageTimestamp";
 import type { ConversationTree } from "@/lib/conversationTree";
 import { getViewportWorldRect, WORLD_SIZE } from "@/lib/panZoom";
 import { cn } from "@/lib/utils";
@@ -19,6 +20,8 @@ export type ChatMessage = {
   role: "user" | "assistant";
   content: string;
   parentId: string | null;
+  model?: string;
+  createdAt?: string;
 };
 
 export type ComposerProps = {
@@ -75,8 +78,9 @@ function BubbleActionButton({
 type PlacedBubbleProps = {
   role: ChatMessage["role"] | "thinking";
   content: string;
+  model?: string;
+  createdAt?: string;
   messageId?: string;
-  isActive?: boolean;
   showComposer?: boolean;
   composer?: ComposerProps;
   onCopy?: (content: string) => void;
@@ -94,7 +98,7 @@ function AnimatedEmbeddedComposer({ composer }: { composer: ComposerProps }) {
       className="overflow-hidden"
       onClick={(event) => event.stopPropagation()}
     >
-      <div className="border-t border-gray-300/70 pt-3">
+      <div className="border-t border-black/10 pt-3">
         <ChatInputBar size="mini" {...composer} />
       </div>
     </motion.div>
@@ -104,15 +108,19 @@ function AnimatedEmbeddedComposer({ composer }: { composer: ComposerProps }) {
 function PlacedChatBubble({
   role,
   content,
+  model,
+  createdAt,
   messageId,
-  isActive = false,
   showComposer = false,
   composer,
   onCopy,
   onSelect,
   style,
 }: PlacedBubbleProps) {
-  const showActions = role === "assistant" && messageId && onCopy;
+  const timestampLabel = createdAt ? formatMessageTimestamp(createdAt) : null;
+  const showFooter =
+    Boolean(timestampLabel) ||
+    (role === "assistant" && messageId && (onCopy || model));
 
   function handleBubbleClick(): void {
     if (messageId && onSelect) {
@@ -127,14 +135,10 @@ function PlacedChatBubble({
       role={messageId ? "button" : undefined}
       tabIndex={messageId && onSelect ? 0 : undefined}
       className={cn(
-        "pointer-events-auto absolute flex flex-col gap-3 rounded-lg border-2 px-4 py-3 text-sm font-medium transition-shadow",
-        role === "user"
-          ? "border-blue-300 bg-blue-50 text-blue-700"
-          : "border-gray-300 bg-gray-100 text-gray-500",
-        role === "assistant" &&
-          isActive &&
-          "ring-4 ring-blue-500 ring-offset-2",
-        messageId && onSelect && "cursor-pointer hover:shadow-md"
+        "pointer-events-auto absolute flex flex-col gap-3 rounded-lg px-4 py-3 text-sm",
+        role === "user" ? "bg-black text-white" : "bg-white text-gray-900",
+        role === "thinking" && "text-gray-500",
+        messageId && onSelect && "cursor-pointer"
       )}
       style={style}
       onClick={messageId && onSelect ? handleBubbleClick : undefined}
@@ -158,21 +162,45 @@ function PlacedChatBubble({
       }
     >
       <div>{content}</div>
+      {showFooter ? (
+        <div className="flex items-center justify-between gap-2">
+          {timestampLabel ? (
+            <time
+              dateTime={createdAt}
+              className={cn(
+                "shrink-0 text-xs font-normal tabular-nums",
+                role === "user" ? "text-white/60" : "text-gray-400"
+              )}
+            >
+              {timestampLabel}
+            </time>
+          ) : (
+            <span />
+          )}
+          {role === "assistant" && (onCopy || model) ? (
+            <div className="flex min-w-0 items-center gap-0.5">
+              {onCopy ? (
+                <BubbleActionButton
+                  label="Copy message"
+                  onClick={() => onCopy(content)}
+                >
+                  <Copy className="size-4" />
+                </BubbleActionButton>
+              ) : null}
+              {model ? (
+                <span className="truncate text-xs font-normal text-gray-400">
+                  {model}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
       <AnimatePresence initial={false}>
         {showComposer && composer ? (
           <AnimatedEmbeddedComposer composer={composer} />
         ) : null}
       </AnimatePresence>
-      {showActions ? (
-        <div className="flex gap-0.5">
-          <BubbleActionButton
-            label="Copy message"
-            onClick={() => onCopy(content)}
-          >
-            <Copy className="size-4" />
-          </BubbleActionButton>
-        </div>
-      ) : null}
     </div>
   );
 }
@@ -353,11 +381,11 @@ export function ChatBubbles({
                   key={bubble.id}
                   role={message.role}
                   content={message.content}
-                  messageId={message.id}
-                  isActive={
-                    message.role === "assistant" &&
-                    tree.activeNodeId === message.id
+                  model={
+                    message.role === "assistant" ? message.model : undefined
                   }
+                  createdAt={message.createdAt}
+                  messageId={message.id}
                   showComposer={embedComposer}
                   composer={embedComposer ? composer : undefined}
                   onCopy={message.role === "assistant" ? onCopy : undefined}
