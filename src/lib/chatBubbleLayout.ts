@@ -15,9 +15,32 @@ export const CHAT_LAYOUT = {
   minBubbleHeight: 44,
   /** Action row + divider below assistant text */
   assistantActionsHeight: 52,
+  /** Embedded mini composer row (content → composer → actions) */
+  composerEmbedHeight: 56,
+  composerGap: 8,
   /** border-2 and active ring-offset slack */
   chromeSlack: 8,
 } as const;
+
+export const COMPOSER_ROOT_ANCHOR = "root" as const;
+export type ComposerAnchorId = typeof COMPOSER_ROOT_ANCHOR | string;
+
+export function resolveComposerAnchor(
+  tree: ConversationTree,
+  messageCount: number,
+  sendAnchorId: ComposerAnchorId | null
+): ComposerAnchorId | null {
+  if (messageCount === 0) {
+    return COMPOSER_ROOT_ANCHOR;
+  }
+  if (sendAnchorId) {
+    return sendAnchorId;
+  }
+  if (tree.activeNodeId) {
+    return tree.activeNodeId;
+  }
+  return null;
+}
 
 export type MinimapBubble = WorldRect & {
   id: string;
@@ -32,7 +55,8 @@ function getBubbleContentWidth(bubbleWidth: number): number {
 function estimateBubbleHeight(
   content: string,
   bubbleWidth: number,
-  role: ChatMessage["role"]
+  role: ChatMessage["role"],
+  embedComposer = false
 ): number {
   const charsPerLine = Math.max(
     20,
@@ -44,10 +68,21 @@ function estimateBubbleHeight(
     CHAT_LAYOUT.bubblePaddingY * 2 + textHeight + CHAT_LAYOUT.chromeSlack;
 
   if (role === "assistant") {
+    if (embedComposer) {
+      height += CHAT_LAYOUT.composerGap + CHAT_LAYOUT.composerEmbedHeight;
+    }
     height += CHAT_LAYOUT.assistantActionsHeight;
   }
 
   return Math.max(CHAT_LAYOUT.minBubbleHeight, height);
+}
+
+function estimateRootComposerSlotHeight(): number {
+  return (
+    CHAT_LAYOUT.bubblePaddingY * 2 +
+    CHAT_LAYOUT.composerEmbedHeight +
+    CHAT_LAYOUT.chromeSlack
+  );
 }
 
 function getSubtreeBottom(node: LayoutNode): number {
@@ -93,15 +128,23 @@ function assignPositions(
   nodes: LayoutNode[],
   bubbleWidth: number,
   startY: number,
-  startX: number
+  startX: number,
+  composerAnchorId: ComposerAnchorId | null
 ): number {
   let cursorX = startX;
 
   function layoutNode(node: LayoutNode, parentBottom: number): number {
+    const embedComposer =
+      node.message.role === "assistant" &&
+      composerAnchorId !== null &&
+      composerAnchorId !== COMPOSER_ROOT_ANCHOR &&
+      composerAnchorId === node.message.id;
+
     node.height = estimateBubbleHeight(
       node.message.content,
       bubbleWidth,
-      node.message.role
+      node.message.role,
+      embedComposer
     );
     node.width = bubbleWidth;
     node.y = parentBottom === -1 ? startY : parentBottom + CHAT_LAYOUT.gap;
@@ -157,22 +200,90 @@ function flattenLayoutNodes(nodes: LayoutNode[]): LayoutNode[] {
   return flat;
 }
 
-export function getBubbleWorldRectsFromTree(
+export type ComposerSlotRect = WorldRect;
+
+function getRootComposerSlotRect(
   tree: ConversationTree,
-  isSending = false,
-  thinkingParentId?: string | null
-): MinimapBubble[] {
+  bubbles: MinimapBubble[],
+  bubbleWidth: number,
+  startX: number
+): ComposerSlotRect {
+  const height = estimateRootComposerSlotHeight();
+  const rootUsers = Object.values(tree.messages)
+    .filter((message) => message.parentId === null && message.role === "user")
+    .sort((a, b) => a.id.localeCompare(b.id));
+
+  if (rootUsers.length === 0) {
+    return {
+      x: startX,
+      y: CHAT_LAYOUT.paddingTop,
+      width: bubbleWidth,
+      height,
+    };
+  }
+
+  let anchorBottom: number = CHAT_LAYOUT.paddingTop;
+  for (const userMessage of rootUsers) {
+    const userBubble = bubbles.find((bubble) => bubble.id === userMessage.id);
+    if (!userBubble) {
+      continue;
+    }
+
+    let bottom = userBubble.y + userBubble.height;
+    const thinkingBubble = bubbles.find(
+      (bubble) =>
+        bubble.role === "thinking" && bubble.parentId === userMessage.id
+    );
+    if (thinkingBubble) {
+      bottom = thinkingBubble.y + thinkingBubble.height;
+    }
+    anchorBottom = Math.max(anchorBottom, bottom);
+  }
+
+  return {
+    x: startX,
+    y: anchorBottom + CHAT_LAYOUT.gap,
+    width: bubbleWidth,
+    height,
+  };
+}
+
+export type CanvasLayout = {
+  bubbles: MinimapBubble[];
+  composerSlot: ComposerSlotRect | null;
+};
+
+export function getCanvasLayoutFromTree(
+  tree: ConversationTree,
+  options: {
+    isSending?: boolean;
+    thinkingParentId?: string | null;
+    composerAnchorId?: ComposerAnchorId | null;
+  } = {}
+): CanvasLayout {
+  const {
+    isSending = false,
+    thinkingParentId = null,
+    composerAnchorId = null,
+  } = options;
   const bubbleWidth = CHAT_COLUMN_WIDTH - CHAT_LAYOUT.paddingX * 2;
+  const startX = (WORLD_SIZE - CHAT_COLUMN_WIDTH) / 2 + CHAT_LAYOUT.paddingX;
   const forest = buildLayoutForest(tree);
-  if (forest.length === 0 && !isSending) {
-    return [];
+
+  if (
+    forest.length === 0 &&
+    !isSending &&
+    composerAnchorId !== COMPOSER_ROOT_ANCHOR
+  ) {
+    return { bubbles: [], composerSlot: null };
   }
 
   assignPositions(
     forest,
     bubbleWidth,
     CHAT_LAYOUT.paddingTop,
-    (WORLD_SIZE - CHAT_COLUMN_WIDTH) / 2 + CHAT_LAYOUT.paddingX
+    startX,
+    composerAnchorId
   );
 
   const placed = flattenLayoutNodes(forest);
@@ -216,7 +327,25 @@ export function getBubbleWorldRectsFromTree(
     });
   }
 
-  return bubbles;
+  const composerSlot =
+    composerAnchorId === COMPOSER_ROOT_ANCHOR
+      ? getRootComposerSlotRect(tree, bubbles, bubbleWidth, startX)
+      : null;
+
+  return { bubbles, composerSlot };
+}
+
+export function getBubbleWorldRectsFromTree(
+  tree: ConversationTree,
+  isSending = false,
+  thinkingParentId?: string | null,
+  composerAnchorId?: ComposerAnchorId | null
+): MinimapBubble[] {
+  return getCanvasLayoutFromTree(tree, {
+    isSending,
+    thinkingParentId,
+    composerAnchorId,
+  }).bubbles;
 }
 
 /** @deprecated Use getBubbleWorldRectsFromTree for tree-shaped conversations. */

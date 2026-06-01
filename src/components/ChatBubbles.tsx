@@ -1,10 +1,13 @@
 import { Copy, GitFork, Loader2, Speech } from "lucide-react";
 import { type ReactNode, useEffect, useMemo } from "react";
 
+import { ChatInputBar } from "@/components/ChatInputBar";
 import { usePanZoom } from "@/components/PanZoomContext";
 import {
+  COMPOSER_ROOT_ANCHOR,
+  type ComposerAnchorId,
   getBubbleThreadSegments,
-  getBubbleWorldRectsFromTree,
+  getCanvasLayoutFromTree,
 } from "@/lib/chatBubbleLayout";
 import type { ConversationTree } from "@/lib/conversationTree";
 import { getViewportWorldRect, WORLD_SIZE } from "@/lib/panZoom";
@@ -17,8 +20,24 @@ export type ChatMessage = {
   parentId: string | null;
 };
 
+export type ComposerProps = {
+  value: string;
+  disabled?: boolean;
+  isRecording?: boolean;
+  isTranscribing?: boolean;
+  speechEnabled?: boolean;
+  isSpeaking?: boolean;
+  placeholder?: string;
+  onChange: (value: string) => void;
+  onSend: (text: string) => void;
+  onToggleRecording: () => void;
+  onToggleSpeech: () => void;
+};
+
 type ChatBubblesProps = {
   tree: ConversationTree;
+  composerAnchorId: ComposerAnchorId | null;
+  composer: ComposerProps | null;
   isSending?: boolean;
   thinkingParentId?: string | null;
   errorMessage?: string;
@@ -56,6 +75,8 @@ type PlacedBubbleProps = {
   messageId?: string;
   isActive?: boolean;
   isSpeaking?: boolean;
+  showComposer?: boolean;
+  composer?: ComposerProps;
   onFork?: (messageId: string) => void;
   onCopy?: (content: string) => void;
   onSpeak?: (messageId: string, content: string) => void;
@@ -63,12 +84,25 @@ type PlacedBubbleProps = {
   style: React.CSSProperties;
 };
 
+function EmbeddedComposer({ composer }: { composer: ComposerProps }) {
+  return (
+    <div
+      className="mt-2 border-t border-gray-300/70 pt-2"
+      onClick={(event) => event.stopPropagation()}
+    >
+      <ChatInputBar size="mini" {...composer} />
+    </div>
+  );
+}
+
 function PlacedChatBubble({
   role,
   content,
   messageId,
   isActive = false,
   isSpeaking = false,
+  showComposer = false,
+  composer,
   onFork,
   onCopy,
   onSpeak,
@@ -88,20 +122,25 @@ function PlacedChatBubble({
     <div
       data-no-pan
       data-chat-bubble
-      role={messageId ? "button" : undefined}
-      tabIndex={messageId && onSelect ? 0 : undefined}
+      role={messageId && !showComposer ? "button" : undefined}
+      tabIndex={messageId && onSelect && !showComposer ? 0 : undefined}
       className={cn(
         "pointer-events-auto absolute rounded-lg px-4 py-3 text-sm font-medium transition-shadow",
         isActive ? "border-4" : "border-2",
         role === "user"
           ? "border-blue-300 bg-blue-50 text-blue-700"
           : "border-gray-300 bg-gray-100 text-gray-500",
-        messageId && onSelect && "cursor-pointer hover:shadow-md"
+        messageId &&
+          onSelect &&
+          !showComposer &&
+          "cursor-pointer hover:shadow-md"
       )}
       style={style}
-      onClick={messageId && onSelect ? handleBubbleClick : undefined}
+      onClick={
+        messageId && onSelect && !showComposer ? handleBubbleClick : undefined
+      }
       onKeyDown={
-        messageId && onSelect
+        messageId && onSelect && !showComposer
           ? (event) => {
               if (event.key === "Enter" || event.key === " ") {
                 event.preventDefault();
@@ -112,6 +151,9 @@ function PlacedChatBubble({
       }
     >
       <div>{content}</div>
+      {showComposer && composer ? (
+        <EmbeddedComposer composer={composer} />
+      ) : null}
       {showActions ? (
         <div
           className="mt-2 flex gap-0.5 border-t border-gray-300/70 pt-2"
@@ -145,56 +187,90 @@ function PlacedChatBubble({
   );
 }
 
+function PlacedRootComposer({
+  composer,
+  style,
+}: {
+  composer: ComposerProps;
+  style: React.CSSProperties;
+}) {
+  return (
+    <div
+      data-no-pan
+      data-chat-bubble
+      className="pointer-events-auto absolute rounded-lg border-2 border-blue-300 bg-blue-50 px-4 py-3 text-sm font-medium text-blue-700"
+      style={style}
+    >
+      <ChatInputBar size="mini" {...composer} />
+    </div>
+  );
+}
+
 function ActiveNodeViewportSync({
   tree,
   thinkingParentId,
   isSending,
+  composerAnchorId,
 }: {
   tree: ConversationTree;
   thinkingParentId?: string | null;
   isSending: boolean;
+  composerAnchorId: ComposerAnchorId | null;
 }) {
   const { transform, viewportSize, panToWorldPoint } = usePanZoom();
 
-  const bubbles = useMemo(
-    () => getBubbleWorldRectsFromTree(tree, isSending, thinkingParentId),
-    [tree, isSending, thinkingParentId]
+  const layout = useMemo(
+    () =>
+      getCanvasLayoutFromTree(tree, {
+        isSending,
+        thinkingParentId,
+        composerAnchorId,
+      }),
+    [tree, isSending, thinkingParentId, composerAnchorId]
   );
 
   useEffect(() => {
-    if (!tree.activeNodeId) {
-      return;
-    }
+    const focusRect =
+      composerAnchorId === COMPOSER_ROOT_ANCHOR
+        ? layout.composerSlot
+        : composerAnchorId
+          ? layout.bubbles.find((bubble) => bubble.id === composerAnchorId)
+          : null;
 
-    const activeBubble = bubbles.find(
-      (bubble) => bubble.id === tree.activeNodeId
-    );
-
-    if (!activeBubble) {
+    if (!focusRect) {
       return;
     }
 
     const viewport = getViewportWorldRect(transform, viewportSize);
 
     const isVisible =
-      activeBubble.x + activeBubble.width > viewport.x &&
-      activeBubble.x < viewport.x + viewport.width &&
-      activeBubble.y + activeBubble.height > viewport.y &&
-      activeBubble.y < viewport.y + viewport.height;
+      focusRect.x + focusRect.width > viewport.x &&
+      focusRect.x < viewport.x + viewport.width &&
+      focusRect.y + focusRect.height > viewport.y &&
+      focusRect.y < viewport.y + viewport.height;
 
     if (!isVisible) {
       panToWorldPoint(
-        activeBubble.x + activeBubble.width / 2,
-        activeBubble.y + activeBubble.height / 2
+        focusRect.x + focusRect.width / 2,
+        focusRect.y + focusRect.height / 2
       );
     }
-  }, [tree.activeNodeId, bubbles, transform, viewportSize, panToWorldPoint]);
+  }, [
+    composerAnchorId,
+    layout.bubbles,
+    layout.composerSlot,
+    transform,
+    viewportSize,
+    panToWorldPoint,
+  ]);
 
   return null;
 }
 
 export function ChatBubbles({
   tree,
+  composerAnchorId,
+  composer,
   isSending = false,
   thinkingParentId = null,
   errorMessage = "",
@@ -204,10 +280,17 @@ export function ChatBubbles({
   onSpeak,
   onSelectMessage,
 }: ChatBubblesProps) {
-  const bubbles = useMemo(
-    () => getBubbleWorldRectsFromTree(tree, isSending, thinkingParentId),
-    [tree, isSending, thinkingParentId]
+  const layout = useMemo(
+    () =>
+      getCanvasLayoutFromTree(tree, {
+        isSending,
+        thinkingParentId,
+        composerAnchorId,
+      }),
+    [tree, isSending, thinkingParentId, composerAnchorId]
   );
+
+  const { bubbles, composerSlot } = layout;
 
   const threadSegments = useMemo(
     () => getBubbleThreadSegments(bubbles),
@@ -220,6 +303,8 @@ export function ChatBubbles({
   );
 
   const hasMessages = placedBubbles.length > 0;
+  const showRootComposer =
+    composerAnchorId === COMPOSER_ROOT_ANCHOR && composer && composerSlot;
 
   return (
     <>
@@ -227,6 +312,7 @@ export function ChatBubbles({
         tree={tree}
         thinkingParentId={thinkingParentId}
         isSending={isSending}
+        composerAnchorId={composerAnchorId}
       />
       <main
         className="pointer-events-none absolute left-0 top-0"
@@ -275,6 +361,11 @@ export function ChatBubbles({
                 return null;
               }
 
+              const embedComposer =
+                message.role === "assistant" &&
+                composerAnchorId === message.id &&
+                composer !== null;
+
               return (
                 <PlacedChatBubble
                   key={bubble.id}
@@ -287,6 +378,8 @@ export function ChatBubbles({
                       : tree.activeNodeId === message.parentId
                   }
                   isSpeaking={speakingMessageId === message.id}
+                  showComposer={embedComposer}
+                  composer={embedComposer ? composer : undefined}
                   onFork={message.role === "assistant" ? onFork : undefined}
                   onCopy={message.role === "assistant" ? onCopy : undefined}
                   onSpeak={message.role === "assistant" ? onSpeak : undefined}
@@ -304,6 +397,18 @@ export function ChatBubbles({
               );
             })
           : null}
+        {showRootComposer ? (
+          <PlacedRootComposer
+            composer={composer}
+            style={{
+              left: composerSlot.x,
+              top: composerSlot.y,
+              width: composerSlot.width,
+              minHeight: composerSlot.height,
+              zIndex: placedBubbles.length + 1,
+            }}
+          />
+        ) : null}
         {errorMessage ? (
           <p className="pointer-events-auto absolute left-1/2 top-8 w-full max-w-md -translate-x-1/2 px-4 text-center text-sm text-destructive">
             {errorMessage}

@@ -1,10 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { ChatBubbles } from "./components/ChatBubbles";
-import { ChatInput } from "./components/ChatInput";
+import { ChatBubbles, type ComposerProps } from "./components/ChatBubbles";
 import { DotGridBackground } from "./components/DotGridBackground";
 import { PanZoomLayer } from "./components/PanZoomLayer";
 import { RealtimeTranscriptionSession } from "./lib/realtimeTranscription";
+import {
+  COMPOSER_ROOT_ANCHOR,
+  type ComposerAnchorId,
+  resolveComposerAnchor,
+} from "./lib/chatBubbleLayout";
 import {
   addAssistantMessage,
   addUserMessage,
@@ -33,7 +37,10 @@ function App() {
   const [tree, setTree] = useState<ConversationTree>(
     loadConversationFromStorage
   );
-  const [inputValue, setInputValue] = useState("");
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [sendAnchorId, setSendAnchorId] = useState<ComposerAnchorId | null>(
+    null
+  );
   const [errorMessage, setErrorMessage] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [thinkingParentId, setThinkingParentId] = useState<string | null>(null);
@@ -56,6 +63,33 @@ function App() {
     () => Object.keys(tree.messages).length,
     [tree.messages]
   );
+
+  const composerAnchorId = useMemo(
+    () => resolveComposerAnchor(tree, messageCount, sendAnchorId),
+    [tree, messageCount, sendAnchorId]
+  );
+
+  const inputValue =
+    composerAnchorId !== null ? (drafts[composerAnchorId] ?? "") : "";
+
+  function setInputValue(value: string): void {
+    if (composerAnchorId === null) {
+      return;
+    }
+
+    setDrafts((current) => ({
+      ...current,
+      [composerAnchorId]: value,
+    }));
+  }
+
+  function clearDraft(anchorId: ComposerAnchorId): void {
+    setDrafts((current) => {
+      const next = { ...current };
+      delete next[anchorId];
+      return next;
+    });
+  }
 
   useEffect(() => {
     speechEnabledRef.current = speechEnabled;
@@ -92,12 +126,35 @@ function App() {
     }
   }
 
+  function stopRecording(): void {
+    setIsRecording(false);
+    setIsConnecting(false);
+
+    const session = transcriptionSessionRef.current;
+    if (!session) {
+      return;
+    }
+
+    transcriptionSessionRef.current = null;
+    session.commitAndClose();
+  }
+
   function handleFork(messageId: string): void {
+    if (isRecording || isConnecting) {
+      stopRecording();
+    }
     setTree((current) => forkConversation(current, messageId));
     setErrorMessage("");
   }
 
   function handleSelectMessage(messageId: string): void {
+    if (
+      (isRecording || isConnecting) &&
+      composerAnchorId !== null &&
+      composerAnchorId !== messageId
+    ) {
+      stopRecording();
+    }
     setTree((current) => setActiveFromMessageClick(current, messageId));
     setErrorMessage("");
   }
@@ -122,18 +179,23 @@ function App() {
       stopRecording();
     }
     setTree(clearConversation());
-    setInputValue("");
+    setDrafts({});
+    setSendAnchorId(null);
     setErrorMessage("");
     setThinkingParentId(null);
   }
 
   async function sendMessage(text: string): Promise<void> {
     const trimmedText = text.trim();
-    if (!trimmedText || isSending) {
+    if (!trimmedText || isSending || composerAnchorId === null) {
       return;
     }
 
-    if (tree.activeNodeId === null && messageCount > 0) {
+    if (
+      tree.activeNodeId === null &&
+      messageCount > 0 &&
+      sendAnchorId === null
+    ) {
       setErrorMessage("Select an assistant message on the canvas to continue.");
       return;
     }
@@ -142,12 +204,15 @@ function App() {
       stopRecording();
     }
 
+    const anchorForSend = composerAnchorId;
+    setSendAnchorId(tree.activeNodeId ?? COMPOSER_ROOT_ANCHOR);
+
     const { tree: treeWithUser, userMessage } = addUserMessage(
       tree,
       trimmedText
     );
     setTree(treeWithUser);
-    setInputValue("");
+    clearDraft(anchorForSend);
     setThinkingParentId(userMessage.id);
     transcriptionBaseRef.current = "";
     setErrorMessage("");
@@ -173,6 +238,7 @@ function App() {
       setTree((current) =>
         addAssistantMessage(current, userMessage.id, data.content)
       );
+      setSendAnchorId(null);
 
       if (speechEnabledRef.current) {
         void speakResponse(data.content);
@@ -188,6 +254,10 @@ function App() {
   }
 
   async function startRecording(): Promise<void> {
+    if (composerAnchorId === null) {
+      return;
+    }
+
     setErrorMessage("");
     setIsConnecting(true);
     transcriptionBaseRef.current = inputValue;
@@ -242,21 +312,8 @@ function App() {
     }
   }
 
-  function stopRecording(): void {
-    setIsRecording(false);
-    setIsConnecting(false);
-
-    const session = transcriptionSessionRef.current;
-    if (!session) {
-      return;
-    }
-
-    transcriptionSessionRef.current = null;
-    session.commitAndClose();
-  }
-
   function handleToggleRecording(): void {
-    if (isSending) {
+    if (isSending || composerAnchorId === null) {
       return;
     }
 
@@ -281,15 +338,27 @@ function App() {
     });
   }
 
-  const activeAssistantPreview =
-    tree.activeNodeId !== null
-      ? tree.messages[tree.activeNodeId]?.content.slice(0, 48)
-      : null;
-
   const composerPlaceholder =
-    tree.activeNodeId === null && messageCount === 0
+    composerAnchorId === COMPOSER_ROOT_ANCHOR
       ? "Start conversation..."
       : "Send to continue from the active assistant…";
+
+  const composerProps: ComposerProps | null =
+    composerAnchorId !== null
+      ? {
+          value: inputValue,
+          disabled: isSending,
+          isRecording,
+          isTranscribing: isConnecting,
+          speechEnabled,
+          isSpeaking,
+          placeholder: composerPlaceholder,
+          onChange: setInputValue,
+          onSend: (text) => void sendMessage(text),
+          onToggleRecording: handleToggleRecording,
+          onToggleSpeech: handleToggleSpeech,
+        }
+      : null;
 
   return (
     <div className="relative min-h-screen overflow-hidden">
@@ -301,6 +370,8 @@ function App() {
         <DotGridBackground />
         <ChatBubbles
           tree={tree}
+          composerAnchorId={composerAnchorId}
+          composer={composerProps}
           isSending={isSending}
           thinkingParentId={thinkingParentId}
           errorMessage={errorMessage}
@@ -312,42 +383,15 @@ function App() {
         />
       </PanZoomLayer>
 
-      <div className="pointer-events-none fixed bottom-4 left-1/2 z-50 flex w-full max-w-2xl -translate-x-1/2 flex-col gap-2 px-4">
-        {messageCount > 0 && tree.activeNodeId ? (
-          <p className="pointer-events-none truncate px-1 text-center text-xs text-muted-foreground">
-            Active: {activeAssistantPreview}
-            {(tree.messages[tree.activeNodeId]?.content.length ?? 0) > 48
-              ? "…"
-              : ""}
-          </p>
-        ) : messageCount > 0 ? (
-          <p className="pointer-events-none px-1 text-center text-xs text-amber-700">
-            Click an assistant bubble (blue ring) to choose where to continue
-          </p>
-        ) : null}
-        {messageCount > 0 ? (
-          <button
-            type="button"
-            onClick={handleClearConversation}
-            className="pointer-events-auto self-end rounded-md border border-input bg-card/95 px-3 py-1.5 text-xs text-muted-foreground backdrop-blur transition-colors hover:bg-muted"
-          >
-            Clear conversation
-          </button>
-        ) : null}
-        <ChatInput
-          value={inputValue}
-          disabled={isSending}
-          isRecording={isRecording}
-          isTranscribing={isConnecting}
-          speechEnabled={speechEnabled}
-          isSpeaking={isSpeaking}
-          placeholder={composerPlaceholder}
-          onChange={setInputValue}
-          onSend={(text) => void sendMessage(text)}
-          onToggleRecording={handleToggleRecording}
-          onToggleSpeech={handleToggleSpeech}
-        />
-      </div>
+      {messageCount > 0 ? (
+        <button
+          type="button"
+          onClick={handleClearConversation}
+          className="pointer-events-auto fixed bottom-4 right-4 z-50 rounded-md border border-input bg-card/95 px-3 py-1.5 text-xs text-muted-foreground backdrop-blur transition-colors hover:bg-muted"
+        >
+          Clear conversation
+        </button>
+      ) : null}
     </div>
   );
 }
