@@ -20,5 +20,11 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["vite.config.ts", "server.ts"]
+  "include": [
+    "vite.config.ts",
+    "server.ts",
+    "src/lib/chatModels.ts",
+    "src/lib/speechSettings.ts",
+    "src/lib/speechVoices.ts"
+  ]
 }

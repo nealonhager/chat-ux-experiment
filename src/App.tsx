@@ -22,7 +22,28 @@ import {
   type ConversationTree,
 } from "./lib/conversationTree";
 import { readChatStream } from "./lib/chatStream";
+import {
+  CHAT_MODEL_STORAGE_KEY,
+  getStoredChatModel,
+  type ChatModelId,
+} from "./lib/chatModels";
 import { SpeechPlayer } from "./lib/speechSynthesis";
+import {
+  getStoredSpeechSpeed,
+  getStoredSpeechStyle,
+  getStoredTtsModel,
+  clampSpeechSpeed,
+  SPEECH_SPEED_STORAGE_KEY,
+  SPEECH_STYLE_STORAGE_KEY,
+  TTS_MODEL_STORAGE_KEY,
+  type SpeechStyleId,
+  type TtsModelId,
+} from "./lib/speechSettings";
+import {
+  getStoredSpeechVoice,
+  SPEECH_VOICE_STORAGE_KEY,
+  type SpeechVoiceId,
+} from "./lib/speechVoices";
 
 type ChatMessagePayload = {
   role: "user" | "assistant";
@@ -49,6 +70,15 @@ function App() {
   const [isRecording, setIsRecording] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [speechEnabled, setSpeechEnabled] = useState(getStoredSpeechEnabled);
+  const [selectedVoice, setSelectedVoice] =
+    useState<SpeechVoiceId>(getStoredSpeechVoice);
+  const [selectedTtsModel, setSelectedTtsModel] =
+    useState<TtsModelId>(getStoredTtsModel);
+  const [selectedSpeechStyle, setSelectedSpeechStyle] =
+    useState<SpeechStyleId>(getStoredSpeechStyle);
+  const [speechSpeed, setSpeechSpeed] = useState(getStoredSpeechSpeed);
+  const [selectedModel, setSelectedModel] =
+    useState<ChatModelId>(getStoredChatModel);
   const [isSpeechLoading, setIsSpeechLoading] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
 
@@ -58,6 +88,12 @@ function App() {
   const resumeRecordingAfterReplyRef = useRef(false);
   const speechPlayerRef = useRef(new SpeechPlayer());
   const speechEnabledRef = useRef(speechEnabled);
+  const speechOptionsRef = useRef({
+    voice: selectedVoice,
+    model: selectedTtsModel,
+    style: selectedSpeechStyle,
+    speed: speechSpeed,
+  });
   const transcriptionBaseRef = useRef("");
 
   const messageCount = useMemo(
@@ -97,6 +133,15 @@ function App() {
   }, [speechEnabled]);
 
   useEffect(() => {
+    speechOptionsRef.current = {
+      voice: selectedVoice,
+      model: selectedTtsModel,
+      style: selectedSpeechStyle,
+      speed: speechSpeed,
+    };
+  }, [selectedVoice, selectedTtsModel, selectedSpeechStyle, speechSpeed]);
+
+  useEffect(() => {
     saveConversationToStorage(tree);
   }, [tree]);
 
@@ -127,6 +172,7 @@ function App() {
 
     try {
       await speechPlayerRef.current.speak(text, {
+        ...speechOptionsRef.current,
         onAudioReady: () => {
           setIsSpeechLoading(false);
           setIsSpeaking(true);
@@ -233,7 +279,7 @@ function App() {
       const response = await fetch("/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: payload }),
+        body: JSON.stringify({ messages: payload, model: selectedModel }),
       });
 
       if (!response.ok) {
@@ -379,6 +425,32 @@ function App() {
     void startRecording();
   }
 
+  function handleModelChange(model: ChatModelId): void {
+    setSelectedModel(model);
+    localStorage.setItem(CHAT_MODEL_STORAGE_KEY, model);
+  }
+
+  function handleSpeechVoiceChange(voice: SpeechVoiceId): void {
+    setSelectedVoice(voice);
+    localStorage.setItem(SPEECH_VOICE_STORAGE_KEY, voice);
+  }
+
+  function handleTtsModelChange(model: TtsModelId): void {
+    setSelectedTtsModel(model);
+    localStorage.setItem(TTS_MODEL_STORAGE_KEY, model);
+  }
+
+  function handleSpeechStyleChange(style: SpeechStyleId): void {
+    setSelectedSpeechStyle(style);
+    localStorage.setItem(SPEECH_STYLE_STORAGE_KEY, style);
+  }
+
+  function handleSpeechSpeedChange(speed: number): void {
+    const clamped = clampSpeechSpeed(speed);
+    setSpeechSpeed(clamped);
+    localStorage.setItem(SPEECH_SPEED_STORAGE_KEY, String(clamped));
+  }
+
   function handleToggleSpeech(): void {
     setSpeechEnabled((current) => {
       const next = !current;
@@ -405,7 +477,9 @@ function App() {
           isRecording,
           isTranscribing: isConnecting,
           placeholder: composerPlaceholder,
+          model: selectedModel,
           onChange: setInputValue,
+          onModelChange: handleModelChange,
           onSend: (text) => void sendMessage(text),
           onToggleRecording: handleToggleRecording,
         }
@@ -418,9 +492,17 @@ function App() {
         minimapIsSending={isSending}
         thinkingParentId={thinkingParentId}
         speechEnabled={speechEnabled}
+        speechVoice={selectedVoice}
+        ttsModel={selectedTtsModel}
+        speechStyle={selectedSpeechStyle}
+        speechSpeed={speechSpeed}
         isSpeechLoading={isSpeechLoading}
         isSpeaking={isSpeaking}
         onToggleSpeech={handleToggleSpeech}
+        onSpeechVoiceChange={handleSpeechVoiceChange}
+        onTtsModelChange={handleTtsModelChange}
+        onSpeechStyleChange={handleSpeechStyleChange}
+        onSpeechSpeedChange={handleSpeechSpeedChange}
         hasMessages={messageCount > 0}
         onClearConversation={handleClearConversation}
       >

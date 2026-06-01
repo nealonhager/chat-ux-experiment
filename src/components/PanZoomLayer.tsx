@@ -24,7 +24,10 @@ import {
   WORLD_SIZE,
   zoomAtPoint,
 } from "@/lib/panZoom";
+import type { SpeechStyleId, TtsModelId } from "@/lib/speechSettings";
+import type { SpeechVoiceId } from "@/lib/speechVoices";
 import { cn } from "@/lib/utils";
+import { isPanZoomInteractiveTarget } from "@/lib/panZoomInteraction";
 
 type PanZoomLayerProps = {
   children: ReactNode;
@@ -34,9 +37,17 @@ type PanZoomLayerProps = {
   minimapIsSending?: boolean;
   thinkingParentId?: string | null;
   speechEnabled?: boolean;
+  speechVoice?: SpeechVoiceId;
+  ttsModel?: TtsModelId;
+  speechStyle?: SpeechStyleId;
+  speechSpeed?: number;
   isSpeechLoading?: boolean;
   isSpeaking?: boolean;
   onToggleSpeech?: () => void;
+  onSpeechVoiceChange?: (voice: SpeechVoiceId) => void;
+  onTtsModelChange?: (model: TtsModelId) => void;
+  onSpeechStyleChange?: (style: SpeechStyleId) => void;
+  onSpeechSpeedChange?: (speed: number) => void;
   hasMessages?: boolean;
   onClearConversation?: () => void;
 };
@@ -49,18 +60,6 @@ function getViewportSize(): ViewportSize {
   return { width: window.innerWidth, height: window.innerHeight };
 }
 
-function isInteractiveTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) {
-    return false;
-  }
-
-  return Boolean(
-    target.closest(
-      'input, textarea, button, select, option, a, label, [contenteditable="true"], [data-no-pan], [data-chat-bubble]'
-    )
-  );
-}
-
 export function PanZoomLayer({
   children,
   className,
@@ -69,9 +68,17 @@ export function PanZoomLayer({
   minimapIsSending = false,
   thinkingParentId = null,
   speechEnabled = false,
+  speechVoice,
+  ttsModel,
+  speechStyle,
+  speechSpeed,
   isSpeechLoading = false,
   isSpeaking = false,
   onToggleSpeech,
+  onSpeechVoiceChange,
+  onTtsModelChange,
+  onSpeechStyleChange,
+  onSpeechSpeedChange,
   hasMessages = false,
   onClearConversation,
 }: PanZoomLayerProps) {
@@ -81,6 +88,7 @@ export function PanZoomLayer({
   const [viewportSize, setViewportSize] =
     useState<ViewportSize>(getViewportSize);
   const [isPanning, setIsPanning] = useState(false);
+  const [interactionRevision, setInteractionRevision] = useState(0);
 
   const transformRef = useRef(transform);
   const isPanningRef = useRef(false);
@@ -93,6 +101,10 @@ export function PanZoomLayer({
   });
 
   transformRef.current = transform;
+
+  const bumpInteractionRevision = useCallback(() => {
+    setInteractionRevision((current) => current + 1);
+  }, []);
 
   const updateTransform = useCallback(
     (next: PanZoomTransform, viewport = getViewportSize()) => {
@@ -124,8 +136,15 @@ export function PanZoomLayer({
       viewportSize,
       updateTransform: (next) => updateTransform(next),
       panToWorldPoint,
+      interactionRevision,
     }),
-    [transform, viewportSize, updateTransform, panToWorldPoint]
+    [
+      transform,
+      viewportSize,
+      updateTransform,
+      panToWorldPoint,
+      interactionRevision,
+    ]
   );
 
   useEffect(() => {
@@ -183,11 +202,12 @@ export function PanZoomLayer({
       return;
     }
 
-    if (isInteractiveTarget(event.target)) {
+    if (isPanZoomInteractiveTarget(event.target)) {
       return;
     }
 
     event.preventDefault();
+    bumpInteractionRevision();
     isPanningRef.current = true;
     setIsPanning(true);
     panStartRef.current = {
@@ -201,7 +221,12 @@ export function PanZoomLayer({
   }
 
   function handleWheel(event: React.WheelEvent<HTMLDivElement>): void {
+    if (isPanZoomInteractiveTarget(event.target)) {
+      return;
+    }
+
     event.preventDefault();
+    bumpInteractionRevision();
 
     const zoomIntensity = event.ctrlKey ? 0.01 : 0.002;
     const deltaScale = Math.exp(-event.deltaY * zoomIntensity);
@@ -247,9 +272,17 @@ export function PanZoomLayer({
           isSending={minimapIsSending}
           thinkingParentId={thinkingParentId}
           speechEnabled={speechEnabled}
+          speechVoice={speechVoice}
+          ttsModel={ttsModel}
+          speechStyle={speechStyle}
+          speechSpeed={speechSpeed}
           isSpeechLoading={isSpeechLoading}
           isSpeaking={isSpeaking}
           onToggleSpeech={onToggleSpeech}
+          onSpeechVoiceChange={onSpeechVoiceChange}
+          onTtsModelChange={onTtsModelChange}
+          onSpeechStyleChange={onSpeechStyleChange}
+          onSpeechSpeedChange={onSpeechSpeedChange}
           hasMessages={hasMessages}
           onClearConversation={onClearConversation}
         />

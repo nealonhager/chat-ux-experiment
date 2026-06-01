@@ -12,6 +12,7 @@ import {
 } from "@/lib/chatBubbleLayout";
 import { formatMessageTimestamp } from "@/lib/formatMessageTimestamp";
 import type { ConversationTree } from "@/lib/conversationTree";
+import { isComposerInteractionTarget } from "@/lib/panZoomInteraction";
 import { getViewportWorldRect, WORLD_SIZE } from "@/lib/panZoom";
 import { cn } from "@/lib/utils";
 
@@ -24,13 +25,17 @@ export type ChatMessage = {
   createdAt?: string;
 };
 
+import type { ChatModelId } from "@/lib/chatModels";
+
 export type ComposerProps = {
   value: string;
   disabled?: boolean;
   isRecording?: boolean;
   isTranscribing?: boolean;
   placeholder?: string;
+  model: ChatModelId;
   onChange: (value: string) => void;
+  onModelChange: (model: ChatModelId) => void;
   onSend: (text: string) => void;
   onToggleRecording: () => void;
 };
@@ -122,7 +127,11 @@ function PlacedChatBubble({
     Boolean(timestampLabel) ||
     (role === "assistant" && messageId && (onCopy || model));
 
-  function handleBubbleClick(): void {
+  function handleBubbleClick(event: React.MouseEvent<HTMLDivElement>): void {
+    if (isComposerInteractionTarget(event.target)) {
+      return;
+    }
+
     if (messageId && onSelect) {
       onSelect(messageId);
     }
@@ -149,13 +158,15 @@ function PlacedChatBubble({
               if (
                 target instanceof HTMLElement &&
                 target !== event.currentTarget &&
-                target.closest("textarea, input, [contenteditable='true']")
+                isComposerInteractionTarget(target)
               ) {
                 return;
               }
               if (event.key === "Enter" || event.key === " ") {
                 event.preventDefault();
-                handleBubbleClick();
+                if (messageId) {
+                  onSelect(messageId);
+                }
               }
             }
           : undefined

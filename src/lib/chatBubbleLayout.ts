@@ -16,7 +16,7 @@ export const CHAT_LAYOUT = {
   /** Footer row (timestamp, copy, model) */
   messageFooterHeight: 28,
   /** Embedded mini composer row (content → actions → composer) */
-  composerEmbedHeight: 56,
+  composerEmbedHeight: 88,
   composerGap: 12,
   chromeSlack: 8,
 } as const;

@@ -7,6 +7,8 @@ export type PanZoomContextValue = {
   viewportSize: ViewportSize;
   updateTransform: (next: PanZoomTransform) => void;
   panToWorldPoint: (worldX: number, worldY: number) => void;
+  /** Bumps when the user pans or zooms so overlays can dismiss. */
+  interactionRevision: number;
 };
 
 export const PanZoomContext = createContext<PanZoomContextValue | null>(null);

@@ -4,6 +4,13 @@ import { Speech } from "lucide-react";
 
 import { TextShimmer } from "@/components/loading-ui/text-shimmer";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { usePanZoom } from "@/components/PanZoomContext";
 import {
   getBubbleThreadSegments,
@@ -17,6 +24,27 @@ import {
   WORLD_SIZE,
   worldRectToMinimap,
 } from "@/lib/panZoom";
+import {
+  DEFAULT_SPEECH_SPEED,
+  DEFAULT_SPEECH_STYLE,
+  DEFAULT_TTS_MODEL,
+  SPEECH_SPEED_MAX,
+  SPEECH_SPEED_MIN,
+  SPEECH_SPEED_STEP,
+  SPEECH_STYLES,
+  SPEECH_STYLE_ITEMS,
+  TTS_MODELS,
+  TTS_MODEL_ITEMS,
+  ttsModelSupportsInstructions,
+  type SpeechStyleId,
+  type TtsModelId,
+} from "@/lib/speechSettings";
+import {
+  DEFAULT_SPEECH_VOICE,
+  SPEECH_VOICE_ITEMS,
+  SPEECH_VOICES,
+  type SpeechVoiceId,
+} from "@/lib/speechVoices";
 import { cn } from "@/lib/utils";
 
 type PanZoomMinimapProps = {
@@ -24,9 +52,17 @@ type PanZoomMinimapProps = {
   isSending?: boolean;
   thinkingParentId?: string | null;
   speechEnabled?: boolean;
+  speechVoice?: SpeechVoiceId;
+  ttsModel?: TtsModelId;
+  speechStyle?: SpeechStyleId;
+  speechSpeed?: number;
   isSpeechLoading?: boolean;
   isSpeaking?: boolean;
   onToggleSpeech?: () => void;
+  onSpeechVoiceChange?: (voice: SpeechVoiceId) => void;
+  onTtsModelChange?: (model: TtsModelId) => void;
+  onSpeechStyleChange?: (style: SpeechStyleId) => void;
+  onSpeechSpeedChange?: (speed: number) => void;
   hasMessages?: boolean;
   onClearConversation?: () => void;
   className?: string;
@@ -114,14 +150,180 @@ function SpeechToggleButton({
   );
 }
 
+type SpeechVoiceSelectProps = {
+  voice: SpeechVoiceId;
+  onVoiceChange: (voice: SpeechVoiceId) => void;
+};
+
+function SpeechVoiceSelect({ voice, onVoiceChange }: SpeechVoiceSelectProps) {
+  function handleVoiceChange(nextVoice: string | null): void {
+    if (nextVoice && SPEECH_VOICES.some((entry) => entry.id === nextVoice)) {
+      onVoiceChange(nextVoice as SpeechVoiceId);
+    }
+  }
+
+  return (
+    <MinimapSelect
+      ariaLabel="Speaker voice"
+      items={SPEECH_VOICE_ITEMS}
+      options={SPEECH_VOICES}
+      value={voice}
+      onValueChange={handleVoiceChange}
+    />
+  );
+}
+
+type SpeechTtsModelSelectProps = {
+  model: TtsModelId;
+  onModelChange: (model: TtsModelId) => void;
+};
+
+function SpeechTtsModelSelect({
+  model,
+  onModelChange,
+}: SpeechTtsModelSelectProps) {
+  function handleModelChange(nextModel: string | null): void {
+    if (nextModel && TTS_MODELS.some((entry) => entry.id === nextModel)) {
+      onModelChange(nextModel as TtsModelId);
+    }
+  }
+
+  return (
+    <MinimapSelect
+      ariaLabel="Text-to-speech model"
+      items={TTS_MODEL_ITEMS}
+      options={TTS_MODELS}
+      value={model}
+      onValueChange={handleModelChange}
+    />
+  );
+}
+
+type SpeechStyleSelectProps = {
+  model: TtsModelId;
+  style: SpeechStyleId;
+  onStyleChange: (style: SpeechStyleId) => void;
+};
+
+function SpeechStyleSelect({
+  model,
+  style,
+  onStyleChange,
+}: SpeechStyleSelectProps) {
+  const stylesSupported = ttsModelSupportsInstructions(model);
+
+  function handleStyleChange(nextStyle: string | null): void {
+    if (nextStyle && SPEECH_STYLES.some((entry) => entry.id === nextStyle)) {
+      onStyleChange(nextStyle as SpeechStyleId);
+    }
+  }
+
+  return (
+    <MinimapSelect
+      ariaLabel="Speech style"
+      disabled={!stylesSupported}
+      items={SPEECH_STYLE_ITEMS}
+      options={SPEECH_STYLES}
+      value={style}
+      onValueChange={handleStyleChange}
+    />
+  );
+}
+
+type SpeechSpeedControlProps = {
+  speed: number;
+  onSpeedChange: (speed: number) => void;
+};
+
+function SpeechSpeedControl({ speed, onSpeedChange }: SpeechSpeedControlProps) {
+  return (
+    <div data-no-pan className="flex flex-col gap-1">
+      <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+        <label htmlFor="speech-speed">Speed</label>
+        <span className="tabular-nums">{speed.toFixed(2)}×</span>
+      </div>
+      <input
+        id="speech-speed"
+        type="range"
+        min={SPEECH_SPEED_MIN}
+        max={SPEECH_SPEED_MAX}
+        step={SPEECH_SPEED_STEP}
+        value={speed}
+        onChange={(event) =>
+          onSpeedChange(Number.parseFloat(event.target.value))
+        }
+        className="h-1.5 w-full cursor-pointer accent-primary"
+        aria-label="Speech speed"
+      />
+    </div>
+  );
+}
+
+type MinimapSelectOption = { id: string; label: string };
+
+type MinimapSelectProps<T extends string> = {
+  ariaLabel: string;
+  disabled?: boolean;
+  items: Array<{ value: T; label: string }>;
+  options: readonly MinimapSelectOption[];
+  value: T;
+  onValueChange: (value: string | null) => void;
+};
+
+function MinimapSelect<T extends string>({
+  ariaLabel,
+  disabled = false,
+  items,
+  options,
+  value,
+  onValueChange,
+}: MinimapSelectProps<T>) {
+  return (
+    <Select
+      items={items}
+      value={value}
+      onValueChange={onValueChange}
+      disabled={disabled}
+    >
+      <SelectTrigger
+        size="sm"
+        data-no-pan
+        className="w-full cursor-pointer text-muted-foreground disabled:opacity-50"
+        aria-label={ariaLabel}
+      >
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent
+        align="start"
+        alignItemWithTrigger={false}
+        className="max-h-72 w-[var(--anchor-width)] min-w-[var(--anchor-width)]"
+      >
+        {options.map((entry) => (
+          <SelectItem key={entry.id} value={entry.id}>
+            {entry.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
 export function PanZoomMinimap({
   tree,
   isSending = false,
   thinkingParentId = null,
   speechEnabled = false,
+  speechVoice = DEFAULT_SPEECH_VOICE,
+  ttsModel = DEFAULT_TTS_MODEL,
+  speechStyle = DEFAULT_SPEECH_STYLE,
+  speechSpeed = DEFAULT_SPEECH_SPEED,
   isSpeechLoading = false,
   isSpeaking = false,
   onToggleSpeech,
+  onSpeechVoiceChange,
+  onTtsModelChange,
+  onSpeechStyleChange,
+  onSpeechSpeedChange,
   hasMessages = false,
   onClearConversation,
   className,
@@ -285,6 +487,38 @@ export function PanZoomMinimap({
           isSpeaking={isSpeaking}
           onToggleSpeech={onToggleSpeech}
         />
+      ) : null}
+      {onSpeechVoiceChange ||
+      onTtsModelChange ||
+      onSpeechStyleChange ||
+      onSpeechSpeedChange ? (
+        <div className="flex flex-col gap-2">
+          {onSpeechVoiceChange ? (
+            <SpeechVoiceSelect
+              voice={speechVoice}
+              onVoiceChange={onSpeechVoiceChange}
+            />
+          ) : null}
+          {onTtsModelChange ? (
+            <SpeechTtsModelSelect
+              model={ttsModel}
+              onModelChange={onTtsModelChange}
+            />
+          ) : null}
+          {onSpeechStyleChange ? (
+            <SpeechStyleSelect
+              model={ttsModel}
+              style={speechStyle}
+              onStyleChange={onSpeechStyleChange}
+            />
+          ) : null}
+          {onSpeechSpeedChange ? (
+            <SpeechSpeedControl
+              speed={speechSpeed}
+              onSpeedChange={onSpeechSpeedChange}
+            />
+          ) : null}
+        </div>
       ) : null}
       {onClearConversation ? (
         <Button

@@ -1,4 +1,11 @@
+import type { SpeechStyleId, TtsModelId } from "@/lib/speechSettings";
+import type { SpeechVoiceId } from "@/lib/speechVoices";
+
 export type SpeechSpeakOptions = {
+  voice?: SpeechVoiceId;
+  model?: TtsModelId;
+  style?: SpeechStyleId;
+  speed?: number;
   onAudioReady?: () => void;
 };
 
@@ -14,7 +21,13 @@ export class SpeechPlayer {
     const response = await fetch("/speech", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text }),
+      body: JSON.stringify({
+        text,
+        voice: options.voice,
+        model: options.model,
+        style: options.style,
+        speed: options.speed,
+      }),
     });
 
     if (generation !== this.speakGeneration) {

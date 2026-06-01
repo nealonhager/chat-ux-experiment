@@ -1,6 +1,20 @@
 import { Loader2, Mic, Send } from "lucide-react";
-import { useRef } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 
+import { PanZoomContext } from "@/components/PanZoomContext";
+
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  CHAT_MODEL_ITEMS,
+  CHAT_MODELS,
+  type ChatModelId,
+} from "@/lib/chatModels";
 import { cn } from "@/lib/utils";
 
 export type ChatInputBarProps = {
@@ -10,7 +24,9 @@ export type ChatInputBarProps = {
   isRecording?: boolean;
   size?: "default" | "mini";
   placeholder?: string;
+  model: ChatModelId;
   onChange: (value: string) => void;
+  onModelChange: (model: ChatModelId) => void;
   onSend: (text: string) => void;
   onToggleRecording: () => void;
 };
@@ -22,15 +38,27 @@ export function ChatInputBar({
   isRecording = false,
   size = "default",
   placeholder = "Message...",
+  model,
   onChange,
+  onModelChange,
   onSend,
   onToggleRecording,
 }: ChatInputBarProps) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const panZoom = useContext(PanZoomContext);
+  const [selectOpen, setSelectOpen] = useState(false);
   const isMini = size === "mini";
   const iconClass = isMini ? "size-3.5" : "size-5";
   const controlSize = isMini ? "size-8" : "size-10";
   const inputDisabled = disabled || isTranscribing;
+
+  useEffect(() => {
+    setSelectOpen(false);
+  }, [panZoom?.interactionRevision]);
+
+  function stopPanZoom(event: React.SyntheticEvent): void {
+    event.stopPropagation();
+  }
 
   function handleSubmit(): void {
     const trimmed = value.trim();
@@ -56,61 +84,107 @@ export function ChatInputBar({
     controlSize
   );
 
+  function handleModelChange(nextModel: string | null): void {
+    if (nextModel && CHAT_MODELS.some((entry) => entry.id === nextModel)) {
+      onModelChange(nextModel as ChatModelId);
+    }
+  }
+
   return (
     <div
-      className={cn(
-        "flex gap-1.5 rounded-xl border bg-card p-1.5",
-        isMini
-          ? "items-center border-gray-300/70 bg-white"
-          : "items-end gap-2 rounded-2xl p-2"
-      )}
+      className={cn("flex cursor-auto flex-col", isMini ? "gap-1" : "gap-1.5")}
       data-no-pan=""
-      onPointerDown={(event) => event.stopPropagation()}
+      data-composer=""
+      onPointerDown={stopPanZoom}
+      onClick={stopPanZoom}
     >
-      <button
-        type="button"
+      <div
         className={cn(
-          iconButtonClass,
-          isRecording && !disabled
-            ? "bg-destructive text-white"
-            : "text-muted-foreground hover:bg-muted hover:text-foreground"
-        )}
-        onClick={onToggleRecording}
-        disabled={inputDisabled}
-        aria-label={isRecording ? "Stop recording" : "Record with Whisper"}
-      >
-        {isTranscribing ? (
-          <Loader2 className={cn(iconClass, "animate-spin")} />
-        ) : (
-          <Mic className={iconClass} />
-        )}
-      </button>
-
-      <textarea
-        ref={inputRef}
-        rows={1}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        onKeyDown={handleKeyDown}
-        placeholder={placeholder}
-        disabled={inputDisabled}
-        className={cn(
-          "block min-w-0 flex-1 resize-none bg-transparent outline-none select-text placeholder:text-muted-foreground disabled:opacity-50",
+          "flex gap-1.5 rounded-xl border bg-card p-1.5",
           isMini
-            ? "min-h-8 px-1 text-xs leading-8"
-            : "min-h-10 px-1 text-sm leading-10"
+            ? "items-center border-gray-300/70 bg-white"
+            : "items-end gap-2 rounded-2xl p-2"
         )}
-      />
-
-      <button
-        type="button"
-        className={cn(iconButtonClass, "bg-primary text-primary-foreground")}
-        onClick={handleSubmit}
-        disabled={inputDisabled || !value.trim()}
-        aria-label="Send message"
       >
-        <Send className={iconClass} />
-      </button>
+        <button
+          type="button"
+          className={cn(
+            iconButtonClass,
+            isRecording && !disabled
+              ? "bg-destructive text-white"
+              : "text-muted-foreground hover:bg-muted hover:text-foreground"
+          )}
+          onClick={onToggleRecording}
+          disabled={inputDisabled}
+          aria-label={isRecording ? "Stop recording" : "Record with Whisper"}
+        >
+          {isTranscribing ? (
+            <Loader2 className={cn(iconClass, "animate-spin")} />
+          ) : (
+            <Mic className={iconClass} />
+          )}
+        </button>
+
+        <textarea
+          ref={inputRef}
+          rows={1}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder={placeholder}
+          disabled={inputDisabled}
+          className={cn(
+            "block min-w-0 flex-1 resize-none bg-transparent outline-none select-text placeholder:text-muted-foreground disabled:opacity-50",
+            isMini
+              ? "min-h-8 px-1 text-xs leading-8"
+              : "min-h-10 px-1 text-sm leading-10"
+          )}
+        />
+
+        <button
+          type="button"
+          className={cn(iconButtonClass, "bg-primary text-primary-foreground")}
+          onClick={handleSubmit}
+          disabled={inputDisabled || !value.trim()}
+          aria-label="Send message"
+        >
+          <Send className={iconClass} />
+        </button>
+      </div>
+
+      <div className="flex justify-end">
+        <Select
+          items={CHAT_MODEL_ITEMS}
+          value={model}
+          open={selectOpen}
+          onOpenChange={setSelectOpen}
+          onValueChange={handleModelChange}
+          disabled={disabled}
+        >
+          <SelectTrigger
+            size="sm"
+            className={cn(
+              "min-w-[7.5rem] max-w-full cursor-pointer border-gray-300/70 bg-white text-muted-foreground",
+              isMini ? "h-7 text-[11px]" : "text-xs"
+            )}
+            aria-label="Chat model"
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent
+            side="bottom"
+            align="end"
+            alignItemWithTrigger={false}
+            className="max-h-72 w-max min-w-[12rem]"
+          >
+            {CHAT_MODELS.map((entry) => (
+              <SelectItem key={entry.id} value={entry.id}>
+                {entry.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
     </div>
   );
 }

@@ -4,6 +4,20 @@ import { fileURLToPath } from "node:url";
 
 import express, { type Request, type Response } from "express";
 
+import { isAllowedChatModel, resolveChatModel } from "./src/lib/chatModels.ts";
+import {
+  isAllowedSpeechVoice,
+  resolveSpeechVoice,
+} from "./src/lib/speechVoices.ts";
+import {
+  getSpeechStyleInstructions,
+  isAllowedSpeechStyle,
+  isAllowedTtsModel,
+  resolveSpeechSpeed,
+  resolveTtsModel,
+  ttsModelSupportsInstructions,
+} from "./src/lib/speechSettings.ts";
+
 const app = express();
 const currentFilePath = fileURLToPath(import.meta.url);
 const currentDirectoryPath = path.dirname(currentFilePath);
@@ -102,7 +116,16 @@ type ChatStreamClientEvent =
   | { error: string };
 
 function getChatModel(): string {
-  return process.env.CHAT_MODEL ?? "gpt-4o-mini";
+  return resolveChatModel(process.env.CHAT_MODEL);
+}
+
+function getRequestedChatModel(request: Request): string {
+  const model = request.body?.model;
+  if (typeof model === "string" && isAllowedChatModel(model)) {
+    return model;
+  }
+
+  return getChatModel();
 }
 
 function writeChatStreamEvent(
@@ -135,9 +158,9 @@ function parseOpenAiSsePayload(payload: string): ChatStreamClientEvent[] {
  */
 async function streamChatCompletion(
   messages: ChatMessage[],
+  model: string,
   response: Response
 ): Promise<void> {
-  const model = getChatModel();
   const openAiResponse = await fetch(
     "https://api.openai.com/v1/chat/completions",
     {
@@ -230,21 +253,38 @@ type SpeechErrorResponse = {
   error?: { message?: string };
 };
 
+type SpeechSynthesisOptions = {
+  text: string;
+  voice: string;
+  model: string;
+  speed: number;
+  instructions?: string;
+};
+
 /**
  * Synthesize speech with the OpenAI Audio API.
  */
-async function synthesizeSpeech(text: string): Promise<ArrayBuffer> {
+async function synthesizeSpeech(
+  options: SpeechSynthesisOptions
+): Promise<ArrayBuffer> {
+  const body: Record<string, unknown> = {
+    model: options.model,
+    voice: options.voice,
+    input: options.text,
+    speed: options.speed,
+  };
+
+  if (options.instructions) {
+    body.instructions = options.instructions;
+  }
+
   const response = await fetch("https://api.openai.com/v1/audio/speech", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${getApiKey()}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      model: process.env.TTS_MODEL ?? "gpt-4o-mini-tts",
-      voice: process.env.TTS_VOICE ?? "marin",
-      input: text,
-    }),
+    body: JSON.stringify(body),
   });
 
   if (!response.ok) {
@@ -255,6 +295,70 @@ async function synthesizeSpeech(text: string): Promise<ArrayBuffer> {
   }
 
   return response.arrayBuffer();
+}
+
+function getDefaultSpeechVoice(): string {
+  return resolveSpeechVoice(process.env.TTS_VOICE);
+}
+
+function getDefaultTtsModel(): string {
+  return resolveTtsModel(process.env.TTS_MODEL);
+}
+
+function getRequestedSpeechVoice(request: Request): string {
+  const voice = request.body?.voice;
+  if (typeof voice === "string" && isAllowedSpeechVoice(voice)) {
+    return voice;
+  }
+
+  return getDefaultSpeechVoice();
+}
+
+function getRequestedTtsModel(request: Request): string {
+  const model = request.body?.model;
+  if (typeof model === "string" && isAllowedTtsModel(model)) {
+    return model;
+  }
+
+  return getDefaultTtsModel();
+}
+
+function getRequestedSpeechSpeed(request: Request): number {
+  const speed = request.body?.speed;
+  if (typeof speed === "number") {
+    return resolveSpeechSpeed(speed);
+  }
+
+  return resolveSpeechSpeed(undefined);
+}
+
+function getRequestedSpeechInstructions(
+  request: Request,
+  model: string
+): string | undefined {
+  if (!isAllowedTtsModel(model) || !ttsModelSupportsInstructions(model)) {
+    return undefined;
+  }
+
+  const style = request.body?.style;
+  if (typeof style !== "string" || !isAllowedSpeechStyle(style)) {
+    return undefined;
+  }
+
+  const instructions = getSpeechStyleInstructions(style);
+  return instructions.length > 0 ? instructions : undefined;
+}
+
+function getSpeechSynthesisOptions(request: Request): SpeechSynthesisOptions {
+  const model = getRequestedTtsModel(request);
+
+  return {
+    text: "",
+    voice: getRequestedSpeechVoice(request),
+    model,
+    speed: getRequestedSpeechSpeed(request),
+    instructions: getRequestedSpeechInstructions(request, model),
+  };
 }
 
 /**
@@ -273,7 +377,11 @@ app.post("/chat", async (request: Request, response: Response) => {
   }
 
   try {
-    await streamChatCompletion(messages as ChatMessage[], response);
+    await streamChatCompletion(
+      messages as ChatMessage[],
+      getRequestedChatModel(request),
+      response
+    );
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Unknown server error.";
@@ -290,7 +398,11 @@ app.post("/speech", async (request: Request, response: Response) => {
   }
 
   try {
-    const audio = await synthesizeSpeech(text.trim());
+    const speechOptions = getSpeechSynthesisOptions(request);
+    const audio = await synthesizeSpeech({
+      ...speechOptions,
+      text: text.trim(),
+    });
     response.type("audio/mpeg").send(Buffer.from(audio));
   } catch (error) {
     const message =
