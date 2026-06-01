@@ -52,6 +52,7 @@ function App() {
   const transcriptionSessionRef = useRef<RealtimeTranscriptionSession | null>(
     null
   );
+  const resumeRecordingAfterReplyRef = useRef(false);
   const speechPlayerRef = useRef(new SpeechPlayer());
   const speechEnabledRef = useRef(speechEnabled);
   const transcriptionBaseRef = useRef("");
@@ -97,6 +98,19 @@ function App() {
   }, [tree]);
 
   useEffect(() => {
+    if (
+      isSending ||
+      !resumeRecordingAfterReplyRef.current ||
+      composerAnchorId === null
+    ) {
+      return;
+    }
+
+    resumeRecordingAfterReplyRef.current = false;
+    void startRecording();
+  }, [isSending, composerAnchorId]);
+
+  useEffect(() => {
     return () => {
       transcriptionSessionRef.current?.dispose();
       speechPlayerRef.current.stop();
@@ -126,6 +140,7 @@ function App() {
   }
 
   function stopRecording(): void {
+    resumeRecordingAfterReplyRef.current = false;
     setIsRecording(false);
     setIsConnecting(false);
 
@@ -186,8 +201,10 @@ function App() {
       return;
     }
 
-    if (transcriptionSessionRef.current) {
+    const shouldResumeVoiceInput = Boolean(transcriptionSessionRef.current);
+    if (shouldResumeVoiceInput) {
       stopRecording();
+      resumeRecordingAfterReplyRef.current = true;
     }
 
     const anchorForSend = composerAnchorId;
@@ -236,6 +253,7 @@ function App() {
       });
       setSendAnchorId(null);
     } catch (error) {
+      resumeRecordingAfterReplyRef.current = false;
       setErrorMessage(
         error instanceof Error ? error.message : "Failed to send message."
       );
