@@ -10,6 +10,7 @@ const currentDirectoryPath = path.dirname(currentFilePath)
 const distDirectoryPath = path.join(currentDirectoryPath, 'dist')
 const port = Number(process.env.PORT ?? 3000)
 
+app.use(express.json({ limit: '1mb' }))
 app.use(express.text({ type: ['application/sdp', 'text/plain'] }))
 
 /**
@@ -25,29 +26,30 @@ function getApiKey(): string {
   return apiKey
 }
 
+type ChatMessage = {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+type ChatCompletionResponse = {
+  choices?: Array<{ message?: { content?: string } }>
+  error?: { message?: string }
+}
+
 /**
- * Build the session configuration for the Realtime call.
+ * Build the session configuration for a Realtime transcription call.
  */
-function buildSessionConfig(): Record<string, unknown> {
+function buildTranscriptionSessionConfig(): Record<string, unknown> {
   return {
-    type: 'realtime',
-    model: process.env.REALTIME_MODEL ?? 'gpt-realtime-2',
-    instructions:
-      'You are a helpful voice assistant. Speak naturally, keep answers concise, and ask a brief follow-up question when it fits.',
+    type: 'transcription',
     audio: {
       input: {
-        noise_reduction: {
-          type: 'near_field',
-        },
         transcription: {
-          model: 'gpt-4o-mini-transcribe',
+          model: process.env.REALTIME_TRANSCRIPTION_MODEL ?? 'gpt-realtime-whisper',
+          language: process.env.TRANSCRIPTION_LANGUAGE ?? 'en',
+          delay: process.env.TRANSCRIPTION_DELAY ?? 'low',
         },
-        turn_detection: {
-          type: 'server_vad',
-        },
-      },
-      output: {
-        voice: 'marin',
+        turn_detection: null,
       },
     },
   }
@@ -56,10 +58,10 @@ function buildSessionConfig(): Record<string, unknown> {
 /**
  * Send the browser SDP offer to OpenAI and return the SDP answer.
  */
-async function createRealtimeAnswer(offerSdp: string): Promise<string> {
+async function createTranscriptionAnswer(offerSdp: string): Promise<string> {
   const formData = new FormData()
   formData.set('sdp', offerSdp)
-  formData.set('session', JSON.stringify(buildSessionConfig()))
+  formData.set('session', JSON.stringify(buildTranscriptionSessionConfig()))
 
   const response = await fetch('https://api.openai.com/v1/realtime/calls', {
     method: 'POST',
@@ -72,10 +74,79 @@ async function createRealtimeAnswer(offerSdp: string): Promise<string> {
   const responseBody = await response.text()
 
   if (!response.ok) {
-    throw new Error(responseBody || 'Realtime session request failed.')
+    throw new Error(responseBody || 'Transcription session request failed.')
   }
 
   return responseBody
+}
+
+function getApiErrorMessage(responseBody: { error?: { message?: string } }, fallback: string): string {
+  return responseBody.error?.message ?? fallback
+}
+
+/**
+ * Send messages to the Chat Completions API and return the assistant reply.
+ */
+async function createChatCompletion(messages: ChatMessage[]): Promise<string> {
+  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${getApiKey()}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: process.env.CHAT_MODEL ?? 'gpt-4o-mini',
+      messages: [
+        {
+          role: 'system',
+          content: 'You are a helpful assistant. Keep answers concise and clear.',
+        },
+        ...messages,
+      ],
+    }),
+  })
+
+  const responseBody = (await response.json()) as ChatCompletionResponse
+
+  if (!response.ok) {
+    throw new Error(getApiErrorMessage(responseBody, 'Chat completion request failed.'))
+  }
+
+  const content = responseBody.choices?.[0]?.message?.content
+  if (typeof content !== 'string' || !content.trim()) {
+    throw new Error('The model returned an empty response.')
+  }
+
+  return content
+}
+
+type SpeechErrorResponse = {
+  error?: { message?: string }
+}
+
+/**
+ * Synthesize speech with the OpenAI Audio API.
+ */
+async function synthesizeSpeech(text: string): Promise<ArrayBuffer> {
+  const response = await fetch('https://api.openai.com/v1/audio/speech', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${getApiKey()}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: process.env.TTS_MODEL ?? 'gpt-4o-mini-tts',
+      voice: process.env.TTS_VOICE ?? 'marin',
+      input: text,
+    }),
+  })
+
+  if (!response.ok) {
+    const responseBody = (await response.json()) as SpeechErrorResponse
+    throw new Error(getApiErrorMessage(responseBody, 'Speech synthesis request failed.'))
+  }
+
+  return response.arrayBuffer()
 }
 
 /**
@@ -85,14 +156,48 @@ function hasBuiltClient(): boolean {
   return fs.existsSync(path.join(distDirectoryPath, 'index.html'))
 }
 
-app.post('/session', async (request: Request, response: Response) => {
+app.post('/chat', async (request: Request, response: Response) => {
+  const messages = request.body?.messages
+
+  if (!Array.isArray(messages) || messages.length === 0) {
+    response.status(400).json({ error: 'Missing messages.' })
+    return
+  }
+
+  try {
+    const content = await createChatCompletion(messages as ChatMessage[])
+    response.json({ content })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown server error.'
+    response.status(500).json({ error: message })
+  }
+})
+
+app.post('/speech', async (request: Request, response: Response) => {
+  const text = request.body?.text
+
+  if (typeof text !== 'string' || !text.trim()) {
+    response.status(400).json({ error: 'Missing text.' })
+    return
+  }
+
+  try {
+    const audio = await synthesizeSpeech(text.trim())
+    response.type('audio/mpeg').send(Buffer.from(audio))
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown server error.'
+    response.status(500).json({ error: message })
+  }
+})
+
+app.post('/transcription-session', async (request: Request, response: Response) => {
   if (!request.body) {
     response.status(400).json({ error: 'Missing SDP offer.' })
     return
   }
 
   try {
-    const answerSdp = await createRealtimeAnswer(request.body)
+    const answerSdp = await createTranscriptionAnswer(request.body)
     response.type('application/sdp').send(answerSdp)
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown server error.'
@@ -109,5 +214,5 @@ if (hasBuiltClient()) {
 }
 
 app.listen(port, () => {
-  console.log(`Realtime server listening on http://localhost:${port}`)
+  console.log(`Server listening on http://localhost:${port}`)
 })

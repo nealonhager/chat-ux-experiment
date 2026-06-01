@@ -14,7 +14,9 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      '/session': 'http://localhost:3000',
+      '/chat': 'http://localhost:3000',
+      '/speech': 'http://localhost:3000',
+      '/transcription-session': 'http://localhost:3000',
     },
   },
 })

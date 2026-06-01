@@ -1,313 +1,351 @@
 import { useEffect, useRef, useState } from 'react'
-import { VoicePill } from './components/VoicePill'
 
-type ConnectionStatus = 'idle' | 'connecting' | 'connected' | 'disconnecting' | 'error'
+import { ChatBubbles, type ChatMessage } from './components/ChatBubbles'
+import { ChatInput } from './components/ChatInput'
+import { DotGridBackground } from './components/DotGridBackground'
+import { PanZoomLayer } from './components/PanZoomLayer'
+import { RealtimeTranscriptionSession } from './lib/realtimeTranscription'
+import { SpeechPlayer } from './lib/speechSynthesis'
 
-type TranscriptLine = {
-  id: string
-  speaker: 'you' | 'assistant'
-  text: string
+type ChatMessagePayload = {
+  role: 'user' | 'assistant'
+  content: string
 }
 
-type RealtimeEvent = {
-  type: string
-  delta?: string
-  error?: { message?: string }
-  response_id?: string
-  transcript?: string
-}
+type InputTarget = 'main' | 'thread'
 
-type AudioInputDevice = {
-  deviceId: string
-  label: string
-}
-
-const MIC_STORAGE_KEY = 'gpt-realtime-mic-id'
-
-function getStoredMicId(): string {
-  return localStorage.getItem(MIC_STORAGE_KEY) ?? ''
-}
-
-function formatInputDevice(device: MediaDeviceInfo, index: number): AudioInputDevice {
-  return {
-    deviceId: device.deviceId,
-    label: device.label || `Microphone ${index + 1}`,
+function joinText(base: string, addition: string): string {
+  const trimmedBase = base.trim()
+  const trimmedAddition = addition.trim()
+  if (!trimmedAddition) {
+    return trimmedBase
   }
+  if (!trimmedBase) {
+    return trimmedAddition
+  }
+  return `${trimmedBase} ${trimmedAddition}`
+}
+
+function getLatestAssistantMessageId(messages: ChatMessage[]): string | null {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index].role === 'assistant') {
+      return messages[index].id
+    }
+  }
+
+  return null
+}
+
+const SPEECH_STORAGE_KEY = 'gpt-chat-speech-enabled'
+
+function getStoredSpeechEnabled(): boolean {
+  return localStorage.getItem(SPEECH_STORAGE_KEY) === 'true'
 }
 
 function App() {
-  const [status, setStatus] = useState<ConnectionStatus>('idle')
+  const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [inputValue, setInputValue] = useState('')
+  const [threadInputValue, setThreadInputValue] = useState('')
   const [errorMessage, setErrorMessage] = useState('')
-  const [lines, setLines] = useState<TranscriptLine[]>([])
-  const [inputDevices, setInputDevices] = useState<AudioInputDevice[]>([])
-  const [selectedMicId, setSelectedMicId] = useState(getStoredMicId)
+  const [isSending, setIsSending] = useState(false)
+  const [isRecording, setIsRecording] = useState(false)
+  const [isConnecting, setIsConnecting] = useState(false)
+  const [activeInputTarget, setActiveInputTarget] = useState<InputTarget>('main')
+  const [speechEnabled, setSpeechEnabled] = useState(getStoredSpeechEnabled)
+  const [isSpeaking, setIsSpeaking] = useState(false)
+  const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null)
 
-  const peerConnectionRef = useRef<RTCPeerConnection | null>(null)
-  const dataChannelRef = useRef<RTCDataChannel | null>(null)
-  const localStreamRef = useRef<MediaStream | null>(null)
-  const remoteAudioRef = useRef<HTMLAudioElement | null>(null)
-  const assistantDraftsRef = useRef(new Map<string, string>())
-  const assistantLineIdsRef = useRef(new Map<string, string>())
-
-  function clearConnectionResources(): void {
-    dataChannelRef.current?.close()
-    dataChannelRef.current = null
-
-    peerConnectionRef.current?.close()
-    peerConnectionRef.current = null
-
-    localStreamRef.current?.getTracks().forEach((track) => track.stop())
-    localStreamRef.current = null
-
-    if (remoteAudioRef.current) {
-      remoteAudioRef.current.pause()
-      remoteAudioRef.current.srcObject = null
-      remoteAudioRef.current = null
-    }
-
-    assistantDraftsRef.current.clear()
-    assistantLineIdsRef.current.clear()
-  }
-
-  function addLine(speaker: TranscriptLine['speaker'], text: string): string {
-    const id = crypto.randomUUID()
-    const trimmedText = text.trim()
-    if (!trimmedText) {
-      return id
-    }
-
-    setLines((current) => [...current, { id, speaker, text: trimmedText }])
-    return id
-  }
-
-  function addUserLine(text: string): void {
-    const id = crypto.randomUUID()
-    const trimmedText = text.trim()
-    if (!trimmedText) {
-      return
-    }
-
-    setLines((current) => {
-      let expectedSpeaker: TranscriptLine['speaker'] = 'you'
-      let insertAt = -1
-
-      for (let index = 0; index < current.length; index++) {
-        if (current[index].speaker !== expectedSpeaker) {
-          insertAt = index
-          break
-        }
-
-        expectedSpeaker = expectedSpeaker === 'you' ? 'assistant' : 'you'
-      }
-
-      const newLine: TranscriptLine = { id, speaker: 'you', text: trimmedText }
-
-      if (insertAt === -1) {
-        return [...current, newLine]
-      }
-
-      return [...current.slice(0, insertAt), newLine, ...current.slice(insertAt)]
-    })
-  }
-
-  function updateLine(id: string, text: string): void {
-    setLines((current) => current.map((line) => (line.id === id ? { ...line, text } : line)))
-  }
-
-  function handleRealtimeEvent(rawEvent: MessageEvent<string>): void {
-    const event = JSON.parse(rawEvent.data) as RealtimeEvent
-
-    if (event.type === 'conversation.item.input_audio_transcription.completed' && event.transcript) {
-      addUserLine(event.transcript)
-      return
-    }
-
-    if (event.type === 'response.output_audio_transcript.delta' && event.delta) {
-      const draftKey = event.response_id ?? 'assistant'
-      const nextDraft = `${assistantDraftsRef.current.get(draftKey) ?? ''}${event.delta}`
-      assistantDraftsRef.current.set(draftKey, nextDraft)
-
-      const existingId = assistantLineIdsRef.current.get(draftKey)
-      if (existingId) {
-        updateLine(existingId, nextDraft)
-        return
-      }
-
-      const id = addLine('assistant', nextDraft)
-      assistantLineIdsRef.current.set(draftKey, id)
-      return
-    }
-
-    if (event.type === 'response.output_audio_transcript.done') {
-      const draftKey = event.response_id ?? 'assistant'
-      const transcript = event.transcript ?? assistantDraftsRef.current.get(draftKey) ?? ''
-      assistantDraftsRef.current.delete(draftKey)
-
-      const existingId = assistantLineIdsRef.current.get(draftKey)
-      if (existingId) {
-        updateLine(existingId, transcript)
-        assistantLineIdsRef.current.delete(draftKey)
-        return
-      }
-
-      addLine('assistant', transcript)
-      return
-    }
-
-    if (event.type === 'error') {
-      setErrorMessage(event.error?.message ?? 'The Realtime API returned an error.')
-      setStatus('error')
-    }
-  }
-
-  async function refreshInputDevices(): Promise<void> {
-    const devices = await navigator.mediaDevices.enumerateDevices()
-    const audioInputs = devices
-      .filter((device) => device.kind === 'audioinput')
-      .map((device, index) => formatInputDevice(device, index))
-
-    setInputDevices(audioInputs)
-
-    setSelectedMicId((currentMicId) => {
-      if (currentMicId && !audioInputs.some((device) => device.deviceId === currentMicId)) {
-        localStorage.removeItem(MIC_STORAGE_KEY)
-        return ''
-      }
-
-      return currentMicId
-    })
-  }
-
-  function handleMicChange(deviceId: string): void {
-    setSelectedMicId(deviceId)
-    if (deviceId) {
-      localStorage.setItem(MIC_STORAGE_KEY, deviceId)
-      return
-    }
-
-    localStorage.removeItem(MIC_STORAGE_KEY)
-  }
-
-  async function startConversation(): Promise<void> {
-    setStatus('connecting')
-    setErrorMessage('')
-    setLines([])
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          ...(selectedMicId ? { deviceId: { exact: selectedMicId } } : {}),
-          autoGainControl: true,
-          echoCancellation: true,
-          noiseSuppression: true,
-        },
-      })
-
-      await refreshInputDevices()
-
-      const peerConnection = new RTCPeerConnection()
-      const remoteAudio = new Audio()
-      remoteAudio.autoplay = true
-
-      peerConnectionRef.current = peerConnection
-      localStreamRef.current = stream
-      remoteAudioRef.current = remoteAudio
-
-      peerConnection.ontrack = (trackEvent) => {
-        remoteAudio.srcObject = trackEvent.streams[0]
-        void remoteAudio.play().catch(() => undefined)
-      }
-
-      stream.getTracks().forEach((track) => {
-        peerConnection.addTrack(track, stream)
-      })
-
-      const dataChannel = peerConnection.createDataChannel('oai-events')
-      dataChannelRef.current = dataChannel
-
-      dataChannel.addEventListener('open', () => {
-        setStatus('connected')
-      })
-      dataChannel.addEventListener('message', handleRealtimeEvent)
-      dataChannel.addEventListener('close', () => {
-        setStatus((currentStatus) => (currentStatus === 'error' ? currentStatus : 'idle'))
-      })
-
-      const offer = await peerConnection.createOffer()
-      await peerConnection.setLocalDescription(offer)
-
-      const response = await fetch('/session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/sdp' },
-        body: offer.sdp,
-      })
-
-      if (!response.ok) {
-        throw new Error((await response.text()) || 'Could not create the Realtime session.')
-      }
-
-      await peerConnection.setRemoteDescription({
-        sdp: await response.text(),
-        type: 'answer',
-      })
-    } catch (error) {
-      clearConnectionResources()
-      setStatus('error')
-      setErrorMessage(error instanceof Error ? error.message : 'Failed to connect.')
-    }
-  }
-
-  function stopConversation(): void {
-    setStatus('disconnecting')
-    clearConnectionResources()
-    setStatus('idle')
-  }
+  const transcriptionSessionRef = useRef<RealtimeTranscriptionSession | null>(null)
+  const speechPlayerRef = useRef(new SpeechPlayer())
+  const speechEnabledRef = useRef(speechEnabled)
+  const transcriptionBaseRef = useRef('')
+  const activeInputTargetRef = useRef<InputTarget>('main')
 
   useEffect(() => {
-    void refreshInputDevices()
+    speechEnabledRef.current = speechEnabled
+  }, [speechEnabled])
 
-    const handleDeviceChange = () => {
-      void refreshInputDevices()
-    }
+  useEffect(() => {
+    activeInputTargetRef.current = activeInputTarget
+  }, [activeInputTarget])
 
-    navigator.mediaDevices.addEventListener('devicechange', handleDeviceChange)
+  useEffect(() => {
     return () => {
-      navigator.mediaDevices.removeEventListener('devicechange', handleDeviceChange)
-      clearConnectionResources()
+      transcriptionSessionRef.current?.dispose()
+      speechPlayerRef.current.stop()
     }
   }, [])
 
-  return (
-    <div className="min-h-screen bg-gray-100 p-6">
-      <VoicePill
-        status={status}
-        errorMessage={errorMessage}
-        inputDevices={inputDevices}
-        selectedMicId={selectedMicId}
-        onMicChange={handleMicChange}
-        onStart={() => void startConversation()}
-        onStop={stopConversation}
-      />
+  function setInputText(target: InputTarget, value: string): void {
+    if (target === 'main') {
+      setInputValue(value)
+      return
+    }
 
-      <main className="mx-auto mt-24 max-w-2xl space-y-3">
-        {lines.length === 0 ? (
-          <p className="text-center text-gray-500">Press start and speak to begin.</p>
-        ) : (
-          lines.map((line) => (
-            <p
-              key={line.id}
-              className={`rounded-lg px-4 py-3 text-sm ${
-                line.speaker === 'you' ? 'bg-white text-gray-900' : 'bg-black text-white'
-              }`}
-            >
-              <span className="mb-1 block text-xs font-medium uppercase opacity-60">
-                {line.speaker === 'you' ? 'You' : 'Assistant'}
-              </span>
-              {line.text}
-            </p>
-          ))
-        )}
-      </main>
+    setThreadInputValue(value)
+  }
+
+  async function speakResponse(text: string, messageId?: string): Promise<void> {
+    setIsSpeaking(true)
+    setSpeakingMessageId(messageId ?? null)
+    setErrorMessage('')
+
+    try {
+      await speechPlayerRef.current.speak(text)
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Failed to play speech.')
+    } finally {
+      setIsSpeaking(false)
+      setSpeakingMessageId(null)
+    }
+  }
+
+  function handleFork(messageId: string): void {
+    setMessages((current) => {
+      const index = current.findIndex((message) => message.id === messageId)
+      if (index === -1) {
+        return current
+      }
+
+      return current.slice(0, index + 1)
+    })
+  }
+
+  async function handleCopy(content: string): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(content)
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Failed to copy message.')
+    }
+  }
+
+  function handleSpeakMessage(messageId: string, content: string): void {
+    speechPlayerRef.current.stop()
+    void speakResponse(content, messageId)
+  }
+
+  async function sendMessage(text: string, branchFromMessageId?: string): Promise<void> {
+    const trimmedText = text.trim()
+    if (!trimmedText || isSending) {
+      return
+    }
+
+    if (transcriptionSessionRef.current) {
+      stopRecording()
+    }
+
+    const userMessage: ChatMessage = {
+      id: crypto.randomUUID(),
+      role: 'user',
+      content: trimmedText,
+    }
+
+    let baseMessages = messages
+    if (branchFromMessageId) {
+      const branchIndex = messages.findIndex((message) => message.id === branchFromMessageId)
+      if (branchIndex !== -1) {
+        baseMessages = messages.slice(0, branchIndex + 1)
+      }
+    }
+
+    const nextMessages = [...baseMessages, userMessage]
+    setMessages(nextMessages)
+
+    if (branchFromMessageId) {
+      setThreadInputValue('')
+    } else {
+      setInputValue('')
+    }
+
+    transcriptionBaseRef.current = ''
+    setErrorMessage('')
+    setIsSending(true)
+
+    try {
+      const payload: ChatMessagePayload[] = nextMessages.map(({ role, content }) => ({
+        role,
+        content,
+      }))
+
+      const response = await fetch('/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: payload }),
+      })
+
+      if (!response.ok) {
+        throw new Error((await response.text()) || 'Could not get a response.')
+      }
+
+      const data = (await response.json()) as { content: string }
+      setMessages((current) => [
+        ...current,
+        {
+          id: crypto.randomUUID(),
+          role: 'assistant',
+          content: data.content,
+        },
+      ])
+
+      if (speechEnabledRef.current) {
+        void speakResponse(data.content)
+      }
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Failed to send message.')
+    } finally {
+      setIsSending(false)
+    }
+  }
+
+  function handleThreadSend(text: string): void {
+    const branchFromMessageId = getLatestAssistantMessageId(messages)
+    if (!branchFromMessageId) {
+      return
+    }
+
+    void sendMessage(text, branchFromMessageId)
+  }
+
+  async function startRecording(target: InputTarget): Promise<void> {
+    setErrorMessage('')
+    setIsConnecting(true)
+    setActiveInputTarget(target)
+    activeInputTargetRef.current = target
+    transcriptionBaseRef.current = target === 'main' ? inputValue : threadInputValue
+
+    let session: RealtimeTranscriptionSession | null = null
+    session = new RealtimeTranscriptionSession({
+      onConnected: () => {
+        if (transcriptionSessionRef.current !== session) {
+          return
+        }
+        setIsConnecting(false)
+        setIsRecording(true)
+      },
+      onDelta: (_delta, draft) => {
+        if (transcriptionSessionRef.current !== session) {
+          return
+        }
+        setInputText(activeInputTargetRef.current, joinText(transcriptionBaseRef.current, draft))
+      },
+      onCompleted: (transcript) => {
+        if (transcriptionSessionRef.current !== session) {
+          return
+        }
+        transcriptionBaseRef.current = joinText(transcriptionBaseRef.current, transcript)
+        setInputText(activeInputTargetRef.current, transcriptionBaseRef.current)
+      },
+      onError: (message) => {
+        if (transcriptionSessionRef.current !== session) {
+          return
+        }
+        setErrorMessage(message)
+      },
+    })
+
+    transcriptionSessionRef.current = session
+
+    try {
+      await session.start()
+    } catch (error) {
+      if (transcriptionSessionRef.current === session) {
+        transcriptionSessionRef.current = null
+      }
+      session.dispose()
+      setIsConnecting(false)
+      setIsRecording(false)
+      setErrorMessage(error instanceof Error ? error.message : 'Could not access microphone.')
+    }
+  }
+
+  function stopRecording(): void {
+    setIsRecording(false)
+    setIsConnecting(false)
+
+    const session = transcriptionSessionRef.current
+    if (!session) {
+      return
+    }
+
+    transcriptionSessionRef.current = null
+    session.commitAndClose()
+  }
+
+  function handleToggleRecording(target: InputTarget): void {
+    if (isSending) {
+      return
+    }
+
+    if ((isRecording || isConnecting) && activeInputTarget === target) {
+      stopRecording()
+      return
+    }
+
+    if (isRecording || isConnecting) {
+      stopRecording()
+    }
+
+    void startRecording(target)
+  }
+
+  function handleToggleSpeech(): void {
+    setSpeechEnabled((current) => {
+      const next = !current
+      localStorage.setItem(SPEECH_STORAGE_KEY, String(next))
+      if (!next) {
+        speechPlayerRef.current.stop()
+        setIsSpeaking(false)
+        setSpeakingMessageId(null)
+      }
+      return next
+    })
+  }
+
+  const hasLatestAssistant = getLatestAssistantMessageId(messages) !== null
+
+  return (
+    <div className="relative min-h-screen overflow-hidden">
+      <PanZoomLayer minimapMessages={messages} minimapIsSending={isSending}>
+        <DotGridBackground />
+        <ChatBubbles
+          messages={messages}
+          isSending={isSending}
+          errorMessage={errorMessage}
+          speakingMessageId={speakingMessageId}
+          threadInput={
+            hasLatestAssistant
+              ? {
+                  value: threadInputValue,
+                  disabled: isSending,
+                  isTranscribing: isConnecting && activeInputTarget === 'thread',
+                  isRecording: isRecording && activeInputTarget === 'thread',
+                  speechEnabled,
+                  isSpeaking,
+                  onChange: setThreadInputValue,
+                  onSend: handleThreadSend,
+                  onToggleRecording: () => handleToggleRecording('thread'),
+                  onToggleSpeech: handleToggleSpeech,
+                }
+              : undefined
+          }
+          onFork={handleFork}
+          onCopy={(content) => void handleCopy(content)}
+          onSpeak={handleSpeakMessage}
+        />
+      </PanZoomLayer>
+
+      <ChatInput
+        value={inputValue}
+        disabled={isSending}
+        isRecording={isRecording && activeInputTarget === 'main'}
+        isTranscribing={isConnecting && activeInputTarget === 'main'}
+        speechEnabled={speechEnabled}
+        isSpeaking={isSpeaking}
+        onChange={setInputValue}
+        onSend={(text) => void sendMessage(text)}
+        onToggleRecording={() => handleToggleRecording('main')}
+        onToggleSpeech={handleToggleSpeech}
+      />
     </div>
   )
 }
