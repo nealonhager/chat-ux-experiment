@@ -91,11 +91,11 @@ function PlacedChatBubble({
       role={messageId ? "button" : undefined}
       tabIndex={messageId && onSelect ? 0 : undefined}
       className={cn(
-        "pointer-events-auto absolute rounded-lg border-2 px-4 py-3 text-sm font-medium transition-shadow",
+        "pointer-events-auto absolute rounded-lg px-4 py-3 text-sm font-medium transition-shadow",
+        isActive ? "border-4" : "border-2",
         role === "user"
           ? "border-blue-300 bg-blue-50 text-blue-700"
           : "border-gray-300 bg-gray-100 text-gray-500",
-        isActive && "border-blue-600 ring-2 ring-blue-600 ring-offset-2",
         messageId && onSelect && "cursor-pointer hover:shadow-md"
       )}
       style={style}
@@ -290,7 +290,9 @@ export function ChatBubbles({
                   onFork={message.role === "assistant" ? onFork : undefined}
                   onCopy={message.role === "assistant" ? onCopy : undefined}
                   onSpeak={message.role === "assistant" ? onSpeak : undefined}
-                  onSelect={onSelectMessage}
+                  onSelect={
+                    message.role === "assistant" ? onSelectMessage : undefined
+                  }
                   style={{
                     left: bubble.x,
                     top: bubble.y,

@@ -25,7 +25,7 @@ The pan-zoom surface where the entire conversation tree is laid out and visible 
 _Avoid_: Viewport, board, workspace
 
 **Active node**:
-The assistant message the user is currently working from; shown with a distinct border on the canvas. Clicking an assistant sets it active; clicking a user message activates its parent assistant instead.
+The assistant message the user is currently working from; shown with a distinct border on the canvas. Only assistant bubbles are clickable to set the active node; user bubbles are not interactive.
 _Avoid_: Active tip, focus, cursor, selected message
 
 **Composer**:

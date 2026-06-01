@@ -116,22 +116,11 @@ export function setActiveFromMessageClick(
   messageId: string
 ): ConversationTree {
   const message = tree.messages[messageId];
-  if (!message) {
+  if (!message || message.role !== "assistant") {
     return tree;
   }
 
-  if (message.role === "assistant") {
-    return { ...tree, activeNodeId: messageId };
-  }
-
-  if (message.parentId) {
-    const parent = tree.messages[message.parentId];
-    if (parent?.role === "assistant") {
-      return { ...tree, activeNodeId: parent.id };
-    }
-  }
-
-  return tree;
+  return { ...tree, activeNodeId: messageId };
 }
 
 export function addUserMessage(
