@@ -11,10 +11,13 @@ import {
 import {
   addAssistantMessage,
   addUserMessage,
+  getModelContext,
+  getModelContextForRegenerate,
+  getParentUserMessage,
+  removeAssistantMessage,
   updateAssistantMessageContent,
   updateAssistantMessageModel,
   clearConversation,
-  getModelContext,
   loadConversationFromStorage,
   saveConversationToStorage,
   setActiveFromMessageClick,
@@ -66,6 +69,9 @@ function App() {
   const [errorMessage, setErrorMessage] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [thinkingParentId, setThinkingParentId] = useState<string | null>(null);
+  const [streamingAssistantId, setStreamingAssistantId] = useState<
+    string | null
+  >(null);
   const [isRecording, setIsRecording] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [speechEnabled, setSpeechEnabled] = useState(getStoredSpeechEnabled);
@@ -94,6 +100,7 @@ function App() {
     speed: speechSpeed,
   });
   const transcriptionBaseRef = useRef("");
+  const pendingAssistantIdRef = useRef<string | null>(null);
 
   const messageCount = useMemo(
     () => Object.keys(tree.messages).length,
@@ -222,6 +229,78 @@ function App() {
     setSendAnchorId(null);
     setErrorMessage("");
     setThinkingParentId(null);
+    setStreamingAssistantId(null);
+  }
+
+  async function streamAssistantReply(
+    userMessageId: string,
+    payload: ChatMessagePayload[],
+    model: ChatModelId
+  ): Promise<{ content: string; assistantMessageId: string }> {
+    const response = await fetch("/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages: payload, model }),
+    });
+
+    if (!response.ok) {
+      throw new Error((await response.text()) || "Could not get a response.");
+    }
+
+    const assistantMessageId = crypto.randomUUID();
+    pendingAssistantIdRef.current = assistantMessageId;
+    setStreamingAssistantId(assistantMessageId);
+    let streamedContent = "";
+    let responseModel: string | undefined;
+
+    await readChatStream(response, (event) => {
+      if (event.type === "error") {
+        throw new Error(event.message);
+      }
+
+      if (event.type === "meta") {
+        responseModel = event.model;
+        setTree((current) => {
+          if (!current.messages[assistantMessageId]) {
+            return current;
+          }
+
+          return updateAssistantMessageModel(
+            current,
+            assistantMessageId,
+            event.model
+          );
+        });
+        return;
+      }
+
+      if (event.type === "delta") {
+        streamedContent += event.delta;
+        setTree((current) => {
+          if (!current.messages[assistantMessageId]) {
+            return addAssistantMessage(
+              current,
+              userMessageId,
+              streamedContent,
+              assistantMessageId,
+              responseModel
+            ).tree;
+          }
+
+          return updateAssistantMessageContent(
+            current,
+            assistantMessageId,
+            streamedContent
+          );
+        });
+      }
+    });
+
+    if (!streamedContent.trim()) {
+      throw new Error("The model returned an empty response.");
+    }
+
+    return { content: streamedContent, assistantMessageId };
   }
 
   async function sendMessage(text: string): Promise<void> {
@@ -265,66 +344,11 @@ function App() {
         userMessage
       );
 
-      const response = await fetch("/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: payload, model: selectedModel }),
-      });
-
-      if (!response.ok) {
-        throw new Error((await response.text()) || "Could not get a response.");
-      }
-
-      const assistantMessageId = crypto.randomUUID();
-      let streamedContent = "";
-      let responseModel: string | undefined;
-
-      await readChatStream(response, (event) => {
-        if (event.type === "error") {
-          throw new Error(event.message);
-        }
-
-        if (event.type === "meta") {
-          responseModel = event.model;
-          setTree((current) => {
-            if (!current.messages[assistantMessageId]) {
-              return current;
-            }
-
-            return updateAssistantMessageModel(
-              current,
-              assistantMessageId,
-              event.model
-            );
-          });
-          return;
-        }
-
-        if (event.type === "delta") {
-          streamedContent += event.delta;
-          setTree((current) => {
-            if (!current.messages[assistantMessageId]) {
-              return addAssistantMessage(
-                current,
-                userMessage.id,
-                streamedContent,
-                assistantMessageId,
-                responseModel
-              ).tree;
-            }
-
-            return updateAssistantMessageContent(
-              current,
-              assistantMessageId,
-              streamedContent
-            );
-          });
-        }
-      });
-
-      if (!streamedContent.trim()) {
-        throw new Error("The model returned an empty response.");
-      }
+      const { content: streamedContent } = await streamAssistantReply(
+        userMessage.id,
+        payload,
+        selectedModel
+      );
 
       if (speechEnabledRef.current) {
         void speakResponse(streamedContent);
@@ -337,8 +361,62 @@ function App() {
         error instanceof Error ? error.message : "Failed to send message."
       );
     } finally {
+      pendingAssistantIdRef.current = null;
       setIsSending(false);
       setThinkingParentId(null);
+      setStreamingAssistantId(null);
+    }
+  }
+
+  async function regenerateMessage(assistantMessageId: string): Promise<void> {
+    if (isSending) {
+      return;
+    }
+
+    const userMessage = getParentUserMessage(tree, assistantMessageId);
+    if (!userMessage) {
+      return;
+    }
+
+    const previousActiveNodeId = tree.activeNodeId;
+    setThinkingParentId(userMessage.id);
+    setErrorMessage("");
+    setIsSending(true);
+
+    try {
+      const payload = getModelContextForRegenerate(tree, assistantMessageId);
+      if (payload.length === 0) {
+        throw new Error("Could not build model context for regenerate.");
+      }
+
+      const { content: streamedContent } = await streamAssistantReply(
+        userMessage.id,
+        payload,
+        selectedModel
+      );
+
+      if (speechEnabledRef.current) {
+        void speakResponse(streamedContent);
+      }
+    } catch (error) {
+      const pendingAssistantId = pendingAssistantIdRef.current;
+      if (pendingAssistantId) {
+        setTree((current) =>
+          removeAssistantMessage(
+            current,
+            pendingAssistantId,
+            previousActiveNodeId
+          )
+        );
+      }
+      setErrorMessage(
+        error instanceof Error ? error.message : "Failed to regenerate reply."
+      );
+    } finally {
+      pendingAssistantIdRef.current = null;
+      setIsSending(false);
+      setThinkingParentId(null);
+      setStreamingAssistantId(null);
     }
   }
 
@@ -481,8 +559,15 @@ function App() {
       composer={composerProps}
       isSending={isSending}
       thinkingParentId={thinkingParentId}
+      streamingAssistantId={streamingAssistantId}
       errorMessage={errorMessage}
       onSelectMessage={handleSelectMessage}
+      regenerate={{
+        disabled: isSending,
+        model: selectedModel,
+        onModelChange: handleModelChange,
+        onRegenerate: (messageId) => void regenerateMessage(messageId),
+      }}
       speechEnabled={speechEnabled}
       speechVoice={selectedVoice}
       ttsModel={selectedTtsModel}

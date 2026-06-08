@@ -3,6 +3,7 @@ import { type NodeProps } from "@xyflow/react";
 
 import { ChatInputBar } from "@/components/ChatInputBar";
 import { BubbleHandles } from "@/components/nodes/BubbleHandles";
+import { AssistantActionRow } from "@/components/nodes/AssistantActionRow";
 import { useConversationFlow } from "@/components/useConversationFlow";
 import type { ChatBubbleNodeData } from "@/lib/conversationFlowLayout";
 import { formatMessageTimestamp } from "@/lib/formatMessageTimestamp";
@@ -15,8 +16,10 @@ const COMPOSER_MOTION = {
 
 function AnimatedEmbeddedComposer({
   composer,
+  messageId,
 }: {
   composer: NonNullable<ReturnType<typeof useConversationFlow>["composer"]>;
+  messageId: string;
 }) {
   return (
     <motion.div
@@ -28,7 +31,8 @@ function AnimatedEmbeddedComposer({
       onClick={(event) => event.stopPropagation()}
     >
       <div className="border-t border-black/10 pt-3">
-        <ChatInputBar size="mini" {...composer} />
+        <ChatInputBar size="mini" showModelSelect={false} {...composer} />
+        <AssistantActionRow messageId={messageId} showTopBorder={false} />
       </div>
     </motion.div>
   );
@@ -90,6 +94,14 @@ export function ChatBubbleNode({ data }: NodeProps) {
     >
       <BubbleHandles />
       <div>{content}</div>
+      <AnimatePresence initial={false}>
+        {showComposer && composer && messageId ? (
+          <AnimatedEmbeddedComposer composer={composer} messageId={messageId} />
+        ) : null}
+      </AnimatePresence>
+      {role === "assistant" && messageId && !showComposer ? (
+        <AssistantActionRow messageId={messageId} />
+      ) : null}
       {showFooter ? (
         <div className="flex items-center justify-between gap-2">
           {timestampLabel ? (
@@ -112,11 +124,6 @@ export function ChatBubbleNode({ data }: NodeProps) {
           ) : null}
         </div>
       ) : null}
-      <AnimatePresence initial={false}>
-        {showComposer && composer ? (
-          <AnimatedEmbeddedComposer composer={composer} />
-        ) : null}
-      </AnimatePresence>
     </div>
   );
 }

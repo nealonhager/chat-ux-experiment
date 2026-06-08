@@ -21,6 +21,7 @@ export type ChatInputBarProps = {
   isTranscribing?: boolean;
   isRecording?: boolean;
   size?: "default" | "mini";
+  showModelSelect?: boolean;
   placeholder?: string;
   model: ChatModelId;
   onChange: (value: string) => void;
@@ -35,6 +36,7 @@ export function ChatInputBar({
   isTranscribing = false,
   isRecording = false,
   size = "default",
+  showModelSelect = true,
   placeholder = "Message...",
   model,
   onChange,
@@ -148,37 +150,39 @@ export function ChatInputBar({
         </button>
       </div>
 
-      <div className="flex justify-end">
-        <Select
-          items={CHAT_MODEL_ITEMS}
-          value={model}
-          onValueChange={handleModelChange}
-          disabled={disabled}
-        >
-          <SelectTrigger
-            size="sm"
-            className={cn(
-              "min-w-[7.5rem] max-w-full cursor-pointer border-gray-300/70 bg-white text-muted-foreground",
-              isMini ? "h-7 text-[11px]" : "text-xs"
-            )}
-            aria-label="Chat model"
+      {showModelSelect ? (
+        <div className="flex justify-end">
+          <Select
+            items={CHAT_MODEL_ITEMS}
+            value={model}
+            onValueChange={handleModelChange}
+            disabled={disabled}
           >
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent
-            side="bottom"
-            align="end"
-            alignItemWithTrigger={false}
-            className="max-h-72 w-max min-w-[12rem]"
-          >
-            {CHAT_MODELS.map((entry) => (
-              <SelectItem key={entry.id} value={entry.id}>
-                {entry.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+            <SelectTrigger
+              size="sm"
+              className={cn(
+                "min-w-[7.5rem] max-w-full cursor-pointer border-gray-300/70 bg-white text-muted-foreground",
+                isMini ? "h-7 text-[11px]" : "text-xs"
+              )}
+              aria-label="Chat model"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent
+              side="bottom"
+              align="end"
+              alignItemWithTrigger={false}
+              className="max-h-72 w-max min-w-[12rem]"
+            >
+              {CHAT_MODELS.map((entry) => (
+                <SelectItem key={entry.id} value={entry.id}>
+                  {entry.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      ) : null}
     </div>
   );
 }

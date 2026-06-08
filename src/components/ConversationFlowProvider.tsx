@@ -13,9 +13,12 @@ export function ConversationFlowProvider({
   children,
   composer,
   onSelectMessage,
+  regenerate,
 }: ConversationFlowProviderProps) {
   return (
-    <ConversationFlowContext.Provider value={{ composer, onSelectMessage }}>
+    <ConversationFlowContext.Provider
+      value={{ composer, onSelectMessage, regenerate }}
+    >
       {children}
     </ConversationFlowContext.Provider>
   );

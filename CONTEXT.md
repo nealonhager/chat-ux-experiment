@@ -9,8 +9,8 @@ The full tree of user and assistant messages for one chat session, including eve
 _Avoid_: Thread (reserved for a single path), Session, multiple topics
 
 **Fork**:
-Starting a new sibling branch from an assistant message while keeping earlier branches; sets that assistant as the active node for the next composer send. Available on any assistant answer in the tree.
-_Avoid_: Rewind, truncate, reset
+Starting a new sibling user message from an assistant message — the user types a new prompt in the Composer. Earlier branches remain. Sets that assistant as the active node for the send. Available on any assistant answer in the tree.
+_Avoid_: Regenerate (same prompt, new answer), Rewind, truncate, reset
 
 **Message**:
 One user or assistant utterance in the conversation tree, with a parent link to the prior message (except roots).
@@ -29,8 +29,8 @@ The assistant message the user is currently working from; shown with a distinct 
 _Avoid_: Active tip, focus, cursor, selected message
 
 **Composer**:
-The single text/voice input used to send a new user message as a child of the active node (a new sibling branch when that assistant already has children). When an assistant is active, the Composer is embedded at the bottom of that assistant bubble — not a separate bubble. At Start, before any messages exist, the Composer is a UI-only slot at the root — not a Message until the user sends. Each send anchor (root slot or active assistant) keeps its own draft text in memory; switching active node restores that anchor’s draft. Drafts are not persisted — reload clears them. Switching active node while voice recording stops the recording; any partial transcript stays in the previous anchor’s draft.
-_Avoid_: Thread input, main input, prompt bar, composer bubble, shared draft
+The single text/voice input used to send a new user message as a child of the active node (a new sibling branch when that assistant already has children). When an assistant is active, the Composer is embedded at the bottom of that assistant bubble — not a separate bubble. The Composer includes the one model dropdown for the conversation; that selection applies to both Send and Regenerate. At Start, before any messages exist, the Composer is a UI-only slot at the root — not a Message until the user sends. Each send anchor (root slot or active assistant) keeps its own draft text in memory; switching active node restores that anchor’s draft. Drafts are not persisted — reload clears them. Switching active node while voice recording stops the recording; any partial transcript stays in the previous anchor’s draft.
+_Avoid_: Thread input, main input, prompt bar, composer bubble, shared draft, per-bubble model picker
 
 **Model context**:
 The messages sent to the model for a completion: the path from a root to the active node, plus the new user message. Sibling branches are not included.
@@ -57,7 +57,7 @@ With no messages yet, the Composer appears on the canvas as a root slot (not vie
 _Avoid_: New chat, empty state
 
 **Composer placement**:
-When an assistant is the active node, the Composer lives inside that bubble — below the message content and above the action row (copy). Layout expands the active bubble to fit the Composer; existing children shift down instantly when the active node changes (no animation). At Start, the Composer is a standalone root slot on the canvas until the first send creates the root user message.
+When an assistant is the active node, the Composer lives inside that bubble — below the message content and above the action row (Regenerate). Layout expands the active bubble to fit the Composer; existing children shift down instantly when the active node changes (no animation). At Start, the Composer is a standalone root slot on the canvas until the first send creates the root user message.
 _Avoid_: Fixed prompt bar, docked input, separate composer bubble below active node
 
 **Orphaned tree**:
@@ -83,3 +83,7 @@ _Avoid_: Delete message, prune, remove branch
 **Failed reply**:
 If the model request fails after the user sends, the user message remains in the tree with no assistant child. The Composer stays in the send anchor so the user can retry — the root slot on the first message, or inside the prior active assistant on later sends.
 _Avoid_: Rollback, undo send
+
+**Regenerate**:
+Request a new sibling assistant answer under the same user message; the prior assistant answer remains in the tree as a sibling branch. Uses the same model context as the original reply to that user message and the Composer’s current model selection — there is no separate model dropdown on assistant bubbles. Available on any assistant bubble, active or not. If the regenerated assistant already has children, that subtree stays on the old answer; the new sibling starts as a bare tip. After a successful Regenerate, the active node moves to the new assistant answer — same as Continue. Speech, when enabled, reads the new answer aloud — same as after a send. The Regenerate control lives on assistant bubbles only; user bubbles stay non-interactive. Only one completion (send or Regenerate) may be in flight at a time. If Regenerate fails, no new assistant sibling is added, the active node is unchanged, and the user sees an error. Failed replies use the Composer at the send anchor instead — Regenerate does not apply until an assistant answer exists.
+_Avoid_: Retry (reserved for failed reply), Replace, Rewind, per-bubble model picker

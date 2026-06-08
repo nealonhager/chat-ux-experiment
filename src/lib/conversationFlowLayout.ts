@@ -34,6 +34,7 @@ export type ConversationFlowNode = Node<
 type BuildConversationFlowGraphOptions = {
   isSending?: boolean;
   thinkingParentId?: string | null;
+  streamingAssistantId?: string | null;
   composerAnchorId?: ComposerAnchorId | null;
 };
 

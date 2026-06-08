@@ -102,6 +102,38 @@ export function getModelContext(
   return [{ role: "user", content: newUserMessage.content }];
 }
 
+export function getParentUserMessage(
+  tree: ConversationTree,
+  assistantMessageId: string
+): ChatMessage | null {
+  const assistant = tree.messages[assistantMessageId];
+  if (!assistant || assistant.role !== "assistant" || !assistant.parentId) {
+    return null;
+  }
+
+  const parent = tree.messages[assistant.parentId];
+  if (!parent || parent.role !== "user") {
+    return null;
+  }
+
+  return parent;
+}
+
+export function getModelContextForRegenerate(
+  tree: ConversationTree,
+  assistantMessageId: string
+): Array<{ role: "user" | "assistant"; content: string }> {
+  const userMessage = getParentUserMessage(tree, assistantMessageId);
+  if (!userMessage) {
+    return [];
+  }
+
+  return getPathToRoot(tree, userMessage.id).map(({ role, content }) => ({
+    role,
+    content,
+  }));
+}
+
 export function forkConversation(
   tree: ConversationTree,
   assistantMessageId: string
@@ -207,6 +239,26 @@ export function updateAssistantMessageModel(
       ...tree.messages,
       [messageId]: { ...message, model },
     },
+  };
+}
+
+export function removeAssistantMessage(
+  tree: ConversationTree,
+  messageId: string,
+  restoreActiveNodeId: string | null
+): ConversationTree {
+  const message = tree.messages[messageId];
+  if (!message || message.role !== "assistant") {
+    return tree;
+  }
+
+  const remainingMessages = { ...tree.messages };
+  delete remainingMessages[messageId];
+
+  return {
+    messages: remainingMessages,
+    activeNodeId:
+      tree.activeNodeId === messageId ? restoreActiveNodeId : tree.activeNodeId,
   };
 }
 

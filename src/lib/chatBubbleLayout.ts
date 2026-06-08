@@ -14,10 +14,11 @@ export const CHAT_LAYOUT = {
   fontSize: 14,
   lineHeight: 20,
   minBubbleHeight: 44,
-  /** Footer row (timestamp, copy, model) */
+  /** Footer row (timestamp, model) */
   messageFooterHeight: 28,
-  /** Embedded mini composer row (content → actions → composer) */
-  composerEmbedHeight: 88,
+  /** Regenerate row on assistant bubbles (content → composer → actions) */
+  actionRowHeight: 32,
+  composerEmbedHeight: 56,
   composerGap: 12,
   chromeSlack: 8,
 } as const;
@@ -75,7 +76,7 @@ function estimateBubbleHeight(
     if (embedComposer) {
       height += CHAT_LAYOUT.composerGap + CHAT_LAYOUT.composerEmbedHeight;
     }
-    height += CHAT_LAYOUT.messageFooterHeight;
+    height += CHAT_LAYOUT.actionRowHeight + CHAT_LAYOUT.messageFooterHeight;
   }
 
   return Math.max(CHAT_LAYOUT.minBubbleHeight, height);
@@ -264,12 +265,14 @@ export function getCanvasLayoutFromTree(
   options: {
     isSending?: boolean;
     thinkingParentId?: string | null;
+    streamingAssistantId?: string | null;
     composerAnchorId?: ComposerAnchorId | null;
   } = {}
 ): CanvasLayout {
   const {
     isSending = false,
     thinkingParentId = null,
+    streamingAssistantId = null,
     composerAnchorId = null,
   } = options;
   const { gap, siblingGap } = resolveLayoutGaps();
@@ -305,19 +308,15 @@ export function getCanvasLayoutFromTree(
     height: node.height,
   }));
 
-  if (isSending) {
-    const parentMessageId = thinkingParentId ?? null;
-    const hasStreamingReply =
-      parentMessageId !== null &&
-      Object.values(tree.messages).some(
-        (message) =>
-          message.role === "assistant" && message.parentId === parentMessageId
-      );
+  if (isSending && thinkingParentId) {
+    const hasStartedStreaming =
+      streamingAssistantId !== null &&
+      Boolean(tree.messages[streamingAssistantId]);
 
-    if (!hasStreamingReply) {
-      const pendingParent = parentMessageId
-        ? bubbles.find((bubble) => bubble.id === parentMessageId)
-        : undefined;
+    if (!hasStartedStreaming) {
+      const pendingParent = bubbles.find(
+        (bubble) => bubble.id === thinkingParentId
+      );
 
       const height = estimateBubbleHeight(
         "Thinking...",
@@ -356,12 +355,14 @@ export function getBubbleWorldRectsFromTree(
   tree: ConversationTree,
   isSending = false,
   thinkingParentId?: string | null,
-  composerAnchorId?: ComposerAnchorId | null
+  composerAnchorId?: ComposerAnchorId | null,
+  streamingAssistantId?: string | null
 ): MinimapBubble[] {
   return getCanvasLayoutFromTree(tree, {
     isSending,
     thinkingParentId,
     composerAnchorId,
+    streamingAssistantId,
   }).bubbles;
 }
 

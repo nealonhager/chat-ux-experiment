@@ -14,6 +14,7 @@ import "@xyflow/react/dist/style.css";
 
 import type { ComposerProps } from "@/types/chat";
 import { ConversationFlowProvider } from "@/components/ConversationFlowProvider";
+import type { RegenerateProps } from "@/components/conversationFlowContext";
 import { ConversationEdge } from "@/components/edges/ConversationEdge";
 import { FlowChromePanel } from "@/components/FlowChromePanel";
 import { ChatBubbleNode } from "@/components/nodes/ChatBubbleNode";
@@ -44,8 +45,10 @@ type ConversationFlowProps = {
   composer: ComposerProps | null;
   isSending?: boolean;
   thinkingParentId?: string | null;
+  streamingAssistantId?: string | null;
   errorMessage?: string;
   onSelectMessage?: (messageId: string) => void;
+  regenerate?: RegenerateProps | null;
   speechEnabled?: boolean;
   speechVoice?: SpeechVoiceId;
   ttsModel?: TtsModelId;
@@ -152,8 +155,10 @@ function ConversationFlowCanvas({
   composer,
   isSending = false,
   thinkingParentId = null,
+  streamingAssistantId = null,
   errorMessage = "",
   onSelectMessage,
+  regenerate = null,
   speechEnabled,
   speechVoice,
   ttsModel,
@@ -173,9 +178,10 @@ function ConversationFlowCanvas({
     () => ({
       isSending,
       thinkingParentId,
+      streamingAssistantId,
       composerAnchorId,
     }),
-    [isSending, thinkingParentId, composerAnchorId]
+    [isSending, thinkingParentId, streamingAssistantId, composerAnchorId]
   );
 
   const layout = useMemo(
@@ -219,6 +225,7 @@ function ConversationFlowCanvas({
     <ConversationFlowProvider
       composer={composer}
       onSelectMessage={onSelectMessage}
+      regenerate={regenerate}
     >
       <div className="relative h-screen w-screen overflow-hidden bg-gray-50">
         <ReactFlow
