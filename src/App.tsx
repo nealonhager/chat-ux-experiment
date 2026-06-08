@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { ChatBubbles, type ComposerProps } from "./components/ChatBubbles";
-import { DotGridBackground } from "./components/DotGridBackground";
-import { PanZoomLayer } from "./components/PanZoomLayer";
+import type { ComposerProps } from "./types/chat";
+import { ConversationFlow } from "./components/ConversationFlow";
 import { RealtimeTranscriptionSession } from "./lib/realtimeTranscription";
 import {
   COMPOSER_ROOT_ANCHOR,
@@ -212,16 +211,6 @@ function App() {
     }
     setTree((current) => setActiveFromMessageClick(current, messageId));
     setErrorMessage("");
-  }
-
-  async function handleCopy(content: string): Promise<void> {
-    try {
-      await navigator.clipboard.writeText(content);
-    } catch (error) {
-      setErrorMessage(
-        error instanceof Error ? error.message : "Failed to copy message."
-      );
-    }
   }
 
   function handleClearConversation(): void {
@@ -486,39 +475,29 @@ function App() {
       : null;
 
   return (
-    <div className="relative min-h-screen overflow-hidden">
-      <PanZoomLayer
-        tree={tree}
-        minimapIsSending={isSending}
-        thinkingParentId={thinkingParentId}
-        speechEnabled={speechEnabled}
-        speechVoice={selectedVoice}
-        ttsModel={selectedTtsModel}
-        speechStyle={selectedSpeechStyle}
-        speechSpeed={speechSpeed}
-        isSpeechLoading={isSpeechLoading}
-        isSpeaking={isSpeaking}
-        onToggleSpeech={handleToggleSpeech}
-        onSpeechVoiceChange={handleSpeechVoiceChange}
-        onTtsModelChange={handleTtsModelChange}
-        onSpeechStyleChange={handleSpeechStyleChange}
-        onSpeechSpeedChange={handleSpeechSpeedChange}
-        hasMessages={messageCount > 0}
-        onClearConversation={handleClearConversation}
-      >
-        <DotGridBackground />
-        <ChatBubbles
-          tree={tree}
-          composerAnchorId={composerAnchorId}
-          composer={composerProps}
-          isSending={isSending}
-          thinkingParentId={thinkingParentId}
-          errorMessage={errorMessage}
-          onCopy={(content) => void handleCopy(content)}
-          onSelectMessage={handleSelectMessage}
-        />
-      </PanZoomLayer>
-    </div>
+    <ConversationFlow
+      tree={tree}
+      composerAnchorId={composerAnchorId}
+      composer={composerProps}
+      isSending={isSending}
+      thinkingParentId={thinkingParentId}
+      errorMessage={errorMessage}
+      onSelectMessage={handleSelectMessage}
+      speechEnabled={speechEnabled}
+      speechVoice={selectedVoice}
+      ttsModel={selectedTtsModel}
+      speechStyle={selectedSpeechStyle}
+      speechSpeed={speechSpeed}
+      isSpeechLoading={isSpeechLoading}
+      isSpeaking={isSpeaking}
+      onToggleSpeech={handleToggleSpeech}
+      onSpeechVoiceChange={handleSpeechVoiceChange}
+      onTtsModelChange={handleTtsModelChange}
+      onSpeechStyleChange={handleSpeechStyleChange}
+      onSpeechSpeedChange={handleSpeechSpeedChange}
+      hasMessages={messageCount > 0}
+      onClearConversation={handleClearConversation}
+    />
   );
 }
 

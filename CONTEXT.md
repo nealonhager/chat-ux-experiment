@@ -21,7 +21,7 @@ A path from a root message through parent links to a tip message; sibling branch
 _Avoid_: Thread, timeline
 
 **Canvas**:
-The pan-zoom surface where the entire conversation tree is laid out and visible at once.
+The React Flow canvas where the entire conversation tree is laid out and visible at once.
 _Avoid_: Viewport, board, workspace
 
 **Active node**:

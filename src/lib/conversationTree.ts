@@ -1,4 +1,4 @@
-import type { ChatMessage } from "@/components/ChatBubbles";
+import type { ChatMessage } from "@/types/chat";
 
 export type ConversationTree = {
   messages: Record<string, ChatMessage>;

@@ -1,7 +1,5 @@
 import { Loader2, Mic, Send } from "lucide-react";
-import { useContext, useEffect, useRef, useState } from "react";
-
-import { PanZoomContext } from "@/components/PanZoomContext";
+import { useRef } from "react";
 
 import {
   Select,
@@ -45,18 +43,12 @@ export function ChatInputBar({
   onToggleRecording,
 }: ChatInputBarProps) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const panZoom = useContext(PanZoomContext);
-  const [selectOpen, setSelectOpen] = useState(false);
   const isMini = size === "mini";
   const iconClass = isMini ? "size-3.5" : "size-5";
   const controlSize = isMini ? "size-8" : "size-10";
   const inputDisabled = disabled || isTranscribing;
 
-  useEffect(() => {
-    setSelectOpen(false);
-  }, [panZoom?.interactionRevision]);
-
-  function stopPanZoom(event: React.SyntheticEvent): void {
+  function stopEventPropagation(event: React.SyntheticEvent): void {
     event.stopPropagation();
   }
 
@@ -73,6 +65,8 @@ export function ChatInputBar({
   function handleKeyDown(
     event: React.KeyboardEvent<HTMLTextAreaElement>
   ): void {
+    event.stopPropagation();
+
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       handleSubmit();
@@ -92,11 +86,13 @@ export function ChatInputBar({
 
   return (
     <div
-      className={cn("flex cursor-auto flex-col", isMini ? "gap-1" : "gap-1.5")}
-      data-no-pan=""
+      className={cn(
+        "nopan nodrag flex cursor-auto flex-col",
+        isMini ? "gap-1" : "gap-1.5"
+      )}
       data-composer=""
-      onPointerDown={stopPanZoom}
-      onClick={stopPanZoom}
+      onPointerDown={stopEventPropagation}
+      onClick={stopEventPropagation}
     >
       <div
         className={cn(
@@ -156,8 +152,6 @@ export function ChatInputBar({
         <Select
           items={CHAT_MODEL_ITEMS}
           value={model}
-          open={selectOpen}
-          onOpenChange={setSelectOpen}
           onValueChange={handleModelChange}
           disabled={disabled}
         >

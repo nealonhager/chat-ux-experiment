@@ -1,7 +1,8 @@
-import { type ChatMessage } from "@/components/ChatBubbles";
+import { CHAT_COLUMN_WIDTH, type WorldRect } from "@/lib/canvasLayout";
+import { resolveLayoutGaps } from "@/lib/layoutSpacing";
 import type { ConversationTree } from "@/lib/conversationTree";
 import { getChildren } from "@/lib/conversationTree";
-import { CHAT_COLUMN_WIDTH, type WorldRect, WORLD_SIZE } from "@/lib/panZoom";
+import type { ChatMessage } from "@/types/chat";
 
 export const CHAT_LAYOUT = {
   paddingX: 16,
@@ -132,7 +133,8 @@ function assignPositions(
   bubbleWidth: number,
   startY: number,
   startX: number,
-  composerAnchorId: ComposerAnchorId | null
+  composerAnchorId: ComposerAnchorId | null,
+  gaps: { gap: number; siblingGap: number }
 ): number {
   let cursorX = startX;
 
@@ -150,11 +152,11 @@ function assignPositions(
       embedComposer
     );
     node.width = bubbleWidth;
-    node.y = parentBottom === -1 ? startY : parentBottom + CHAT_LAYOUT.gap;
+    node.y = parentBottom === -1 ? startY : parentBottom + gaps.gap;
 
     if (node.children.length === 0) {
       node.x = cursorX;
-      cursorX += bubbleWidth + CHAT_LAYOUT.siblingGap;
+      cursorX += bubbleWidth + gaps.siblingGap;
       return node.y + node.height;
     }
 
@@ -209,7 +211,8 @@ function getRootComposerSlotRect(
   tree: ConversationTree,
   bubbles: MinimapBubble[],
   bubbleWidth: number,
-  startX: number
+  startX: number,
+  gap: number
 ): ComposerSlotRect {
   const height = estimateRootComposerSlotHeight();
   const rootUsers = Object.values(tree.messages)
@@ -245,7 +248,7 @@ function getRootComposerSlotRect(
 
   return {
     x: startX,
-    y: anchorBottom + CHAT_LAYOUT.gap,
+    y: anchorBottom + gap,
     width: bubbleWidth,
     height,
   };
@@ -269,8 +272,9 @@ export function getCanvasLayoutFromTree(
     thinkingParentId = null,
     composerAnchorId = null,
   } = options;
+  const { gap, siblingGap } = resolveLayoutGaps();
   const bubbleWidth = CHAT_COLUMN_WIDTH - CHAT_LAYOUT.paddingX * 2;
-  const startX = (WORLD_SIZE - CHAT_COLUMN_WIDTH) / 2 + CHAT_LAYOUT.paddingX;
+  const startX = CHAT_LAYOUT.paddingX;
   const forest = buildLayoutForest(tree);
 
   if (
@@ -286,7 +290,8 @@ export function getCanvasLayoutFromTree(
     bubbleWidth,
     CHAT_LAYOUT.paddingTop,
     startX,
-    composerAnchorId
+    composerAnchorId,
+    { gap, siblingGap }
   );
 
   const placed = flattenLayoutNodes(forest);
@@ -322,9 +327,9 @@ export function getCanvasLayoutFromTree(
       const width = bubbleWidth;
       const x = pendingParent
         ? pendingParent.x + (pendingParent.width - width) / 2
-        : (WORLD_SIZE - width) / 2;
+        : startX;
       const y = pendingParent
-        ? pendingParent.y + pendingParent.height + CHAT_LAYOUT.gap
+        ? pendingParent.y + pendingParent.height + gap
         : CHAT_LAYOUT.paddingTop;
 
       bubbles.push({
@@ -341,7 +346,7 @@ export function getCanvasLayoutFromTree(
 
   const composerSlot =
     composerAnchorId === COMPOSER_ROOT_ANCHOR
-      ? getRootComposerSlotRect(tree, bubbles, bubbleWidth, startX)
+      ? getRootComposerSlotRect(tree, bubbles, bubbleWidth, startX, gap)
       : null;
 
   return { bubbles, composerSlot };

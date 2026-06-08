@@ -2,7 +2,7 @@
 
 An experiment in what talking to an LLM could feel like.
 
-Most chat UIs assume one linear thread: you type, the model replies, repeat. This app tries something different — a **conversation tree** on a pan-zoom canvas, where you can fork from any assistant reply, compare branches side by side, and keep going from whichever answer you actually want to build on.
+Most chat UIs assume one linear thread: you type, the model replies, repeat. This app tries something different — a **conversation tree** on a React Flow canvas, where you can fork from any assistant reply, compare branches side by side, and keep going from whichever answer you actually want to build on.
 
 The composer lives on the canvas itself (embedded in the active assistant bubble, not docked at the bottom of the screen). You can type or dictate with your voice, pick the chat model per send, and optionally hear replies read aloud with configurable voice, speed, and style.
 
