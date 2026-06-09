@@ -2,6 +2,7 @@ import { CHAT_COLUMN_WIDTH, type WorldRect } from "@/lib/canvasLayout";
 import { resolveLayoutGaps } from "@/lib/layoutSpacing";
 import type { ConversationTree } from "@/lib/conversationTree";
 import { getChildren } from "@/lib/conversationTree";
+import { estimateStructuredReplyTextHeight } from "@/lib/markdownLayoutEstimate";
 import type { ChatMessage } from "@/types/chat";
 
 export const CHAT_LAYOUT = {
@@ -53,18 +54,30 @@ function getBubbleContentWidth(bubbleWidth: number): number {
   return bubbleWidth - CHAT_LAYOUT.bubblePaddingX * 2;
 }
 
+function estimatePlainTextHeight(content: string, bubbleWidth: number): number {
+  const charsPerLine = Math.max(
+    20,
+    Math.floor(getBubbleContentWidth(bubbleWidth) / 6.5)
+  );
+  const lines = Math.max(1, Math.ceil(content.length / charsPerLine));
+  return lines * CHAT_LAYOUT.lineHeight;
+}
+
 function estimateBubbleHeight(
   content: string,
   bubbleWidth: number,
   role: ChatMessage["role"],
   embedComposer = false
 ): number {
-  const charsPerLine = Math.max(
-    20,
-    Math.floor(getBubbleContentWidth(bubbleWidth) / 6.5)
-  );
-  const lines = Math.max(1, Math.ceil(content.length / charsPerLine));
-  const textHeight = lines * CHAT_LAYOUT.lineHeight;
+  const contentWidth = getBubbleContentWidth(bubbleWidth);
+  const textHeight =
+    role === "assistant"
+      ? estimateStructuredReplyTextHeight(
+          content,
+          contentWidth,
+          CHAT_LAYOUT.lineHeight
+        )
+      : estimatePlainTextHeight(content, bubbleWidth);
   let height =
     CHAT_LAYOUT.bubblePaddingY * 2 + textHeight + CHAT_LAYOUT.chromeSlack;
 

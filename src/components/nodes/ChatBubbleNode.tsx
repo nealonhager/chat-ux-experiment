@@ -2,6 +2,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { type NodeProps } from "@xyflow/react";
 
 import { ChatInputBar } from "@/components/ChatInputBar";
+import { StructuredReply } from "@/components/StructuredReply";
 import { BubbleHandles } from "@/components/nodes/BubbleHandles";
 import { AssistantActionRow } from "@/components/nodes/AssistantActionRow";
 import { useConversationFlow } from "@/components/useConversationFlow";
@@ -93,7 +94,11 @@ export function ChatBubbleNode({ data }: NodeProps) {
       }
     >
       <BubbleHandles />
-      <div>{content}</div>
+      {role === "assistant" ? (
+        <StructuredReply content={content} />
+      ) : (
+        <div className="whitespace-pre-wrap break-words">{content}</div>
+      )}
       <AnimatePresence initial={false}>
         {showComposer && composer && messageId ? (
           <AnimatedEmbeddedComposer composer={composer} messageId={messageId} />

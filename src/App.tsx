@@ -29,6 +29,7 @@ import {
   getStoredChatModel,
   type ChatModelId,
 } from "./lib/chatModels";
+import { markdownToSpeechText } from "./lib/markdownToSpeech";
 import { SpeechPlayer } from "./lib/speechSynthesis";
 import {
   getStoredSpeechSpeed,
@@ -172,12 +173,17 @@ function App() {
   }, []);
 
   async function speakResponse(text: string): Promise<void> {
+    const speakableText = markdownToSpeechText(text);
+    if (!speakableText) {
+      return;
+    }
+
     setIsSpeechLoading(true);
     setIsSpeaking(false);
     setErrorMessage("");
 
     try {
-      await speechPlayerRef.current.speak(text, {
+      await speechPlayerRef.current.speak(speakableText, {
         ...speechOptionsRef.current,
         onAudioReady: () => {
           setIsSpeechLoading(false);

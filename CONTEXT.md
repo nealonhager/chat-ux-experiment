@@ -25,7 +25,7 @@ The React Flow canvas where the entire conversation tree is laid out and visible
 _Avoid_: Viewport, board, workspace
 
 **Active node**:
-The assistant message the user is currently working from; shown with a distinct ring on the canvas. Only assistant bubbles are clickable to set the active node; user bubbles are not interactive.
+The assistant message the user is currently working from; shown with a distinct ring on the canvas. Clicking an assistant bubble sets the active node; clicking a link inside a Structured reply opens the link instead and does not change the active node. User bubbles are not interactive.
 _Avoid_: Active tip, focus, cursor, selected message
 
 **Composer**:
@@ -87,3 +87,19 @@ _Avoid_: Rollback, undo send
 **Regenerate**:
 Request a new sibling assistant answer under the same user message; the prior assistant answer remains in the tree as a sibling branch. Uses the same model context as the original reply to that user message and the Composer’s current model selection — there is no separate model dropdown on assistant bubbles. Available on any assistant bubble, active or not. If the regenerated assistant already has children, that subtree stays on the old answer; the new sibling starts as a bare tip. After a successful Regenerate, the active node moves to the new assistant answer — same as Continue. Speech, when enabled, reads the new answer aloud — same as after a send. The Regenerate control lives on assistant bubbles only; user bubbles stay non-interactive. Only one completion (send or Regenerate) may be in flight at a time. If Regenerate fails, no new assistant sibling is added, the active node is unchanged, and the user sees an error. Failed replies use the Composer at the send anchor instead — Regenerate does not apply until an assistant answer exists.
 _Avoid_: Retry (reserved for failed reply), Replace, Rewind, per-bubble model picker
+
+**Structured reply**:
+An assistant Message body shown with standard markdown interpreted — headings, lists, emphasis, links, inline and fenced code, tables, strikethrough, and task lists — rather than as raw characters. Tables and fenced code wider than the bubble scroll horizontally; the bubble width stays fixed. In-reply links are sanitized and open in a new tab. Syntax highlighting is out of scope for the first version. User Messages are always shown as plain text, exactly as typed or transcribed.
+_Avoid_: Rich text, formatted message, HTML, prose, syntax highlighting
+
+**Layout estimate**:
+The predicted height of a Message bubble used to position siblings and children on the Canvas before render. For Structured replies, the estimate accounts for markdown structure — line breaks, list items, headings, and fenced code blocks — rather than raw character count alone.
+_Avoid_: minHeight, DOM measurement, auto-layout
+
+**Streaming reply**:
+An assistant Message still receiving tokens from the model. Structured reply formatting applies incrementally on each update, not only after the stream completes.
+_Avoid_: Partial message, in-flight formatting, delta
+
+**Speech**:
+When enabled, the app reads assistant replies aloud after Send and Regenerate. Speech uses plain speakable text derived from the stored markdown — markup is stripped before reading, not shown on screen.
+_Avoid_: TTS, voice output, audio playback
